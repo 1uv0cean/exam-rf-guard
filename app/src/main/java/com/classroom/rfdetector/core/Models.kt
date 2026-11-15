@@ -13,7 +13,7 @@ enum class SignalPresence(val label: String) {
 
 data class ScanSession(val id: String, val startedAtMs: Long, val area: String, val areaLocked: Boolean = false)
 
-/** 거리 등급 — RSSI->거리는 실내 오차가 커서 숫자 대신 등급으로만 표시한다 */
+/** 거리 등급 — RSSI 기반 추정이며 실제 거리 측정이 아니다. */
 enum class DistanceClass(val label: String) {
     VERY_CLOSE("바로 옆"),
     CLOSE("가까움"),
@@ -61,6 +61,8 @@ data class TrackedDevice(
     val lastSeenAgeSeconds: Long = 0,
     val observationCount: Int = 0,
     val peakRssi: Int? = null,
+    val periods: List<ObservationPeriod> = emptyList(),
+    val referenceRssiAt1m: Double? = null,
 ) {
     val trackingKey: String get() = radioKey(source, key)
 }

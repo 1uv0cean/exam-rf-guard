@@ -2,7 +2,7 @@ package com.classroom.rfdetector.core
 
 import java.util.concurrent.ConcurrentHashMap
 
-enum class ObservationUpdate { FIRST_SEEN, CURRENT, LATE }
+enum class ObservationUpdate { FIRST_SEEN, CURRENT, LATE, REAPPEARED }
 
 /** Keep each radio/address independent, including its name, strength and history. */
 class DeviceTracker {
@@ -12,7 +12,8 @@ class DeviceTracker {
         var hidden = false
         val manufacturerIds = LinkedHashSet<Int>()
         var ema: Double? = null
-        var tx: Double = RssiFilter.DEFAULT_TX_DBM
+        var tx: Double? = null
+        var periods: List<ObservationPeriod> = emptyList()
         val history = ArrayDeque<RssiPoint>()
         var firstSeen = 0L
         var lastSeen = 0L
@@ -36,12 +37,14 @@ class DeviceTracker {
         t.firstSeen = minOf(t.firstSeen, obs.timestampMs)
         t.lastSeen = maxOf(t.lastSeen, obs.timestampMs)
         t.observationCount++
+        val previousPeriodCount = t.periods.size
+        t.periods = addToPeriods(t.periods, obs.timestampMs, obs.source.historyGapMs())
         t.manufacturerIds.addAll(obs.manufacturerIds)
         if (!late || t.name == null) obs.name?.takeIf { it.isNotBlank() }?.let { t.name = it }
         if (!late) t.hidden = obs.hidden
         obs.rssi?.let { r ->
             if (!late) {
-                t.ema = RssiFilter.ema(t.ema, r)
+                t.ema = RssiFilter.ema(if (t.periods.size > previousPeriodCount) null else t.ema, r)
                 t.tx = obs.txPower?.takeIf { it in -100..20 && it != 127 }?.toDouble() ?: t.tx
             }
             t.history.addLast(RssiPoint(obs.timestampMs, r))
@@ -49,7 +52,12 @@ class DeviceTracker {
             t.peakRssi = maxOf(t.peakRssi ?: r, r)
             while (t.history.size > 512 || (t.history.size > 1 && t.lastSeen - t.history.first().tsMs > 10_000)) t.history.removeFirst()
         }
-        return when { firstObservation -> ObservationUpdate.FIRST_SEEN; late -> ObservationUpdate.LATE; else -> ObservationUpdate.CURRENT }
+        return when {
+            firstObservation -> ObservationUpdate.FIRST_SEEN
+            late -> ObservationUpdate.LATE
+            t.periods.size > previousPeriodCount -> ObservationUpdate.REAPPEARED
+            else -> ObservationUpdate.CURRENT
+        }
     }
 
     @Synchronized
@@ -57,14 +65,9 @@ class DeviceTracker {
         val base = baselineKeys
         return tracks.values.filter { includeInactive || nowMs - it.lastSeen <= 90_000L }.map { t ->
             val rssi = t.ema
-            val dist = rssi?.let { RssiFilter.distanceM(it, t.tx) }
+            val dist = rssi?.let { RssiFilter.distanceM(it, t.tx ?: RssiFilter.DEFAULT_TX_DBM) }
             val ageMs = (nowMs - t.lastSeen).coerceAtLeast(0)
-            val ble = t.source == ScanSource.BLE
-            val presence = when {
-                ageMs <= if (ble) 5_000 else 45_000 -> SignalPresence.RECENT
-                ageMs <= if (ble) 15_000 else 90_000 -> SignalPresence.QUIET
-                else -> SignalPresence.HISTORY
-            }
+            val presence = signalPresence(t.source, t.lastSeen, nowMs)
             TrackedDevice(
                 key = t.key,
                 displayName = t.name ?: defaultName(t),
@@ -85,6 +88,8 @@ class DeviceTracker {
                 lastSeenAgeSeconds = ageMs / 1000,
                 observationCount = t.observationCount,
                 peakRssi = t.peakRssi,
+                periods = t.periods.toList(),
+                referenceRssiAt1m = t.tx,
             )
         }.sortedWith(
             compareByDescending<TrackedDevice> { it.isBaselineNew }

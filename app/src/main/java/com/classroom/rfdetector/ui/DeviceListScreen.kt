@@ -29,6 +29,7 @@ import com.classroom.rfdetector.core.SignalPresence
 import com.classroom.rfdetector.core.equipmentType
 import com.classroom.rfdetector.core.observationSpan
 import com.classroom.rfdetector.core.observationMeaning
+import com.classroom.rfdetector.core.estimateDistance
 import kotlin.math.roundToInt
 
 @Composable
@@ -81,6 +82,11 @@ fun DeviceListScreen(vm: AppViewModel, devices: List<TrackedDevice>, baselineSet
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("유형: ${selected.equipmentType()}", color = RfColors.primary)
             Text(observationSpan(selected.firstSeenMs, selected.lastSeenMs, selected.observationCount), color = RfColors.primary)
+            Text("${selected.periods.size}개 관측 구간 · 재등장 ${(selected.periods.size - 1).coerceAtLeast(0)}회", color = RfColors.warning)
+            estimateDistance(selected.rssiEma, selected.referenceRssiAt1m)?.let {
+                Text("예상 거리 ${it.label} · 마지막 수신 기준\n${it.rangeLabel}", color = RfColors.primary)
+                Text("RSSI와 실내 전파 모델의 추정입니다. ${if (it.assumedReference) "기기별 보정 없이 1m −59 dBm을 가정합니다." else "1m RSSI 기준을 적용합니다."} 벽·인체·송신 출력에 따라 실제 거리와 크게 다를 수 있습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+            }
             Text("최초 ${snapshotTime(selected.firstSeenMs)}\n마지막 ${snapshotTime(selected.lastSeenMs)}", style = MaterialTheme.typography.bodySmall)
             Text("관측 구간이며 계속 연결된 시간은 아닙니다. 수신 사이의 공백은 알 수 없습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
             Text(selected.key, style = MaterialTheme.typography.bodySmall, color = RfColors.textDim)
@@ -110,6 +116,11 @@ private fun DeviceRow(device: TrackedDevice, onClick: () -> Unit) {
                 Text(device.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("유형: ${device.equipmentType()}", style = MaterialTheme.typography.labelSmall, color = RfColors.primary)
                 Text(observationSpan(device.firstSeenMs, device.lastSeenMs, device.observationCount), style = MaterialTheme.typography.labelSmall, color = RfColors.textDim)
+                if (device.periods.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    RfGlyph(RfSymbol.RETURN, size = 16.dp, color = RfColors.warning)
+                    Text("재등장 ${device.periods.size - 1}회", style = MaterialTheme.typography.labelSmall, color = RfColors.warning)
+                }
+                estimateDistance(device.rssiEma, device.referenceRssiAt1m)?.let { Text("${it.label} · 마지막 수신 추정", style = MaterialTheme.typography.labelSmall, color = RfColors.textDim) }
                 Text(device.identity.summary, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = RfColors.textDim)
                 Text("${device.presence.label} · ${device.observationCount}회 · ${device.lastSeenAgeSeconds}초 전", style = MaterialTheme.typography.labelSmall, color = if (device.presence == SignalPresence.RECENT) RfColors.primary else RfColors.textDim)
                 Text("${device.distanceClass.label} · ${if (device.hidden) "숨김 AP · " else ""}${trendLabel(device.trendDbPer10s)}", style = MaterialTheme.typography.bodySmall, color = RfColors.textDim)

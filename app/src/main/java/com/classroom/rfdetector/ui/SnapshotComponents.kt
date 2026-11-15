@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -25,8 +26,11 @@ internal fun SnapshotSteps(current: Int) {
                     stateDescription = when { active -> "현재 단계"; step < current -> "완료"; else -> "다음 단계" }
                 }) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(if (step < current) "$step ✓" else "$step", color = if (step <= current) RfColors.primary else RfColors.textDim,
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("$step", color = if (step <= current) RfColors.primary else RfColors.textDim,
                         fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    if (step < current) RfGlyph(RfSymbol.CHECK)
+                    }
                     Text(title, color = if (active) RfColors.primary else RfColors.textDim,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.labelMedium)
                 }
@@ -38,14 +42,28 @@ internal fun SnapshotSteps(current: Int) {
 @Composable
 internal fun SignalSummary(signal: SnapshotSignal) {
     val audio = signal.audioNameMatch
+    val distance = estimateDistance(signal.rssi, signal.referenceRssiAt1m)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SummaryField("유형", signal.equipmentType(), Modifier.weight(1f))
-            SummaryField(if (audio != null) "제조사 후보" else "제조사·등록사", audio?.brand ?: signal.manufacturer, Modifier.weight(1f))
+            val symbol = when {
+                signal.source == ScanSource.WIFI -> RfSymbol.WIFI
+                audio?.kind == AudioKind.EARPHONES -> RfSymbol.EARPHONES
+                audio?.kind == AudioKind.HEADPHONES -> RfSymbol.HEADPHONES
+                else -> RfSymbol.BLUETOOTH
+            }
+            SummaryField("유형", signal.equipmentType(), Modifier.weight(1f), symbol)
+            SummaryField(if (audio != null) "제조사 후보" else "제조사·등록사", audio?.brand ?: signal.manufacturer, Modifier.weight(1f), RfSymbol.COMPANY)
         }
-        SummaryField("모델 후보", audio?.model ?: signal.modelHint ?: "미확인")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SummaryField("모델 후보", audio?.model ?: signal.modelHint ?: "미확인", Modifier.weight(1f), RfSymbol.MODEL)
+            SummaryField("예상 거리 · 마지막 수신", distance?.let { it.label + if (it.assumedReference) " · 미보정" else " · 추정" } ?: "추정 불가", Modifier.weight(1f), RfSymbol.DISTANCE)
+        }
         HorizontalDivider(color = RfColors.grid)
-        SummaryField("관측 시간", observationSpan(signal.firstSeenMs, signal.lastSeenMs, signal.observationCount))
+        SummaryField("관측 시간", observationSpan(signal.firstSeenMs, signal.lastSeenMs, signal.observationCount), symbol = RfSymbol.CLOCK)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            RfGlyph(RfSymbol.RETURN, color = if (signal.reappearanceCount > 0) RfColors.warning else RfColors.textDim)
+            Text(if (signal.periods.isEmpty()) "구간 이력 없음 · 이전 버전 기록" else "${signal.periods.size}개 관측 구간 · 재등장 ${signal.reappearanceCount}회", color = if (signal.reappearanceCount > 0) RfColors.warning else RfColors.textDim, style = MaterialTheme.typography.labelSmall)
+        }
         val endFormat = if (snapshotTime(signal.firstSeenMs).take(5) == snapshotTime(signal.lastSeenMs).take(5)) "HH:mm:ss" else "MM/dd HH:mm:ss"
         Text("${snapshotTime(signal.firstSeenMs)} → ${SimpleDateFormat(endFormat, Locale.getDefault()).format(Date(signal.lastSeenMs))}",
             color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
@@ -53,9 +71,12 @@ internal fun SignalSummary(signal: SnapshotSignal) {
 }
 
 @Composable
-private fun SummaryField(label: String, value: String, modifier: Modifier = Modifier) {
+private fun SummaryField(label: String, value: String, modifier: Modifier = Modifier, symbol: RfSymbol = RfSymbol.INFO) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(label, color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            RfGlyph(symbol, size = 16.dp, color = RfColors.textDim)
+            Text(label, color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
+        }
         Text(value, color = RfColors.textPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -63,6 +84,28 @@ private fun SummaryField(label: String, value: String, modifier: Modifier = Modi
 @Composable
 internal fun ExplanationToggle(title: String, expanded: Boolean, onClick: () -> Unit) {
     TextButton(onClick = onClick, modifier = Modifier.semantics { stateDescription = if (expanded) "펼침" else "접힘" }) {
+        RfGlyph(RfSymbol.INFO, size = 16.dp)
+        Spacer(Modifier.width(5.dp))
         Text("$title ${if (expanded) "▴" else "▾"}")
     }
+}
+
+@Composable
+internal fun ObservationPeriodList(signal: SnapshotSignal) {
+    if (signal.periods.isEmpty()) Text("이 기록에는 구간 이력이 없습니다. 이전 버전 자료의 재등장 여부는 판단하지 않습니다.")
+    signal.periods.forEachIndexed { index, period ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RfGlyph(if (index == 0) RfSymbol.CLOCK else RfSymbol.RETURN)
+            Column {
+                Text(if (index == 0) "첫 포착" else "재등장 $index", fontWeight = FontWeight.SemiBold)
+                Text("${snapshotTime(period.firstSeenMs)} → ${snapshotTime(period.lastSeenMs)}", style = MaterialTheme.typography.labelSmall)
+                Text(observationSpan(period.firstSeenMs, period.lastSeenMs, period.count), style = MaterialTheme.typography.bodySmall)
+                if (index > 0) {
+                    val gapSeconds = (period.firstSeenMs - signal.periods[index - 1].lastSeenMs) / 1000
+                    Text("이전 구간 후 ${gapSeconds / 60}분 ${gapSeconds % 60}초 미수신", style = MaterialTheme.typography.labelSmall, color = RfColors.warning)
+                }
+            }
+        }
+    }
+    Text("BLE는 15초, Wi-Fi는 90초를 넘겨 미수신한 뒤 다시 잡히면 새 구간입니다. 같은 주소의 재포착이며 전원·연결 상태를 뜻하지 않습니다.", style = MaterialTheme.typography.bodySmall, color = RfColors.textDim)
 }

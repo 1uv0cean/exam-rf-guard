@@ -12,6 +12,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.classroom.rfdetector.App
+import com.classroom.rfdetector.AppViewModel
+import com.classroom.rfdetector.core.*
 import java.io.File
 import java.time.Duration
 import org.junit.Rule
@@ -27,6 +29,58 @@ import org.robolectric.Shadows.shadowOf
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AppFlowTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun examScenarioRetainsVanishedEarbudShowsReturnAndUnion() {
+        val vm = AppViewModel(compose.activity.applicationContext)
+        try {
+            compose.setContent { AppRfTheme { androidx.compose.material3.Surface(color = RfColors.bg) { SnapshotScreen(vm) } } }
+            compose.waitUntil(10_000) { !vm.snapshotBusy.value }
+            val tracker = DeviceTracker()
+            val start = System.currentTimeMillis() - 180_000
+            fun observe(address: String, at: Long, source: ScanSource) = tracker.update(
+                RfObservation(address, source, if (source == ScanSource.BLE) "AirPods Pro" else "시험장 AP", -68, null, false, start + at, if (source == ScanSource.BLE) setOf(76) else emptySet()))
+            fun capture(id: String, at: Long, baselineTime: Long? = null) = SignalSnapshot.capture(id, "제1시험실", id, start + at, start, false,
+                tracker.snapshot(start + at, true).map { it.copy(identity = DeviceIdentityResolver(emptyMap(), mapOf(76 to "Apple, Inc.")).resolve(it.key, it.displayName, setOf(it.source), it.manufacturerIds)) }, baselineTime)
+            observe("room-ap", 0, ScanSource.WIFI)
+            val before = capture("입실 전", 0)
+            tracker.setBaseline(before.signals.map { it.matchKey }.toSet())
+            observe("brief-earbud", 1000, ScanSource.BLE)
+            observe("brief-earbud", 2000, ScanSource.BLE)
+            val vanished = capture("입실 후 · 미수신", 120000, start)
+            compose.runOnIdle {
+                vm.baselineSnapshot.value = before
+                vm.comparisonSnapshot.value = vanished
+                vm.savedSnapshots.value = listOf(before, vanished)
+            }
+            scrollToText("AirPods Pro")
+            compose.onNodeWithText("추가 관측 · BLE · 수신 기록").assertExists()
+            compose.onNodeWithText("1개 관측 구간 · 재등장 0회").assertExists()
+            saveScreen("scenario-brief-retained")
+            observe("brief-earbud", 121000, ScanSource.BLE)
+            val returned = capture("시험 중 · 재포착", 122000, start)
+            compose.runOnIdle {
+                vm.comparisonSnapshot.value = returned
+                vm.savedSnapshots.value = listOf(before, vanished, returned)
+            }
+            scrollToText("AirPods Pro")
+            compose.onNodeWithText("2개 관측 구간 · 재등장 1회").assertExists()
+            saveScreen("scenario-returned")
+            scrollToText("전체 이력 2")
+            compose.onNodeWithText("전체 이력 2").performClick()
+            compose.onNodeWithText("기준~비교 사이 등장 주소의 합집합 · 중복 제외").assertExists()
+            saveScreen("scenario-union")
+            scrollToText("AirPods Pro")
+            compose.onNodeWithText("AirPods Pro").performClick()
+            compose.onNodeWithText("관측 구간·재등장 보기 ▾").performScrollTo().performClick()
+            compose.onNodeWithText("재등장 1").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("이전 구간 후 1분 59초 미수신").assertExists()
+            saveScreen("scenario-periods")
+            compose.onNodeWithText("관측 구간·재등장 보기 ▴").performScrollTo().performClick()
+            compose.onNodeWithText("식별 근거·시간 해석 보기 ▾").performScrollTo().performClick()
+            compose.onNodeWithText("모델 가정 범위", substring = true).assertExists()
+            compose.onNodeWithText("닫기").assertIsDisplayed().performClick()
+        } finally { vm.shutdown() }
+    }
 
     @Test fun baselineNewEarbudAndIdentityDetails() {
         compose.setContent { AppRfTheme { App() } }

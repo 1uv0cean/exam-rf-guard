@@ -177,8 +177,8 @@ class AppViewModel(private val app: Context) {
     private fun onObservation(obs: RfObservation) {
         if (!scanning.value) return
         val update = tracker.update(obs)
-        if (update == ObservationUpdate.FIRST_SEEN && baselineSet.value) {
-            if (obs.trackingKey !in (tracker.baselineKeys ?: emptySet())) latestNewSignal.value = obs.name ?: obs.key
+        if ((update == ObservationUpdate.FIRST_SEEN || update == ObservationUpdate.REAPPEARED) && baselineSet.value) {
+            if (obs.trackingKey !in (tracker.baselineKeys ?: emptySet())) latestNewSignal.value = (obs.name ?: obs.key) + if (update == ObservationUpdate.REAPPEARED) " · 재등장" else ""
         }
         if (update != ObservationUpdate.LATE) obs.rssi?.let { r ->
             val tx = obs.txPower?.toDouble() ?: RssiFilter.DEFAULT_TX_DBM

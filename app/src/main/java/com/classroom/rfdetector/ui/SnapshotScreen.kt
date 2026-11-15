@@ -48,6 +48,7 @@ fun SnapshotScreen(vm: AppViewModel) {
     var archiveExpanded by rememberSaveable { mutableStateOf(false) }
     var detailHelp by remember { mutableStateOf(false) }
     var timelineExpanded by remember { mutableStateOf(false) }
+    var periodsExpanded by remember { mutableStateOf(false) }
     var archiveQuery by rememberSaveable { mutableStateOf("") }
     var currentRoomOnly by rememberSaveable { mutableStateOf(false) }
     var selectedSignal by remember { mutableStateOf<SnapshotSignal?>(null) }
@@ -68,11 +69,14 @@ fun SnapshotScreen(vm: AppViewModel) {
         if (savedTarget == null && !liveTargetAvailable) null else baseline?.let { runCatching { compareSnapshots(it, target) } }
     }
     val result = comparison?.getOrNull()
+    val union = remember(baseline, target, snapshots, result) {
+        if (result == null) emptyList() else baseline?.let { observedUnion(it, target, snapshots) } ?: emptyList()
+    }
     val available = snapshots.filter { it.simulation == simulation }
     val archiveRows = remember(snapshots, simulation, archiveQuery, currentRoomOnly, area) {
         filterSnapshotArchive(snapshots, simulation, archiveQuery, if (currentRoomOnly) area else null)
     }
-    val groupRows = when (group) { "추가" -> result?.added; "미관측" -> result?.notObserved; else -> result?.common?.map { it.after } } ?: emptyList()
+    val groupRows = when (group) { "추가" -> result?.added; "미관측" -> result?.notObserved; "공통" -> result?.common?.map { it.after }; else -> union } ?: emptyList()
     val changes = remember(result) { result?.common?.associate { it.after.matchKey to it.deltaDb } ?: emptyMap() }
     val effectiveSort = if (group != "공통" && sort == SignalSort.CHANGE) SignalSort.RSSI else sort
     val rows = remember(groupRows, query, radio, audioOnly, effectiveSort, changes) {
@@ -97,7 +101,7 @@ fun SnapshotScreen(vm: AppViewModel) {
                     if (captureOptions) OutlinedTextField(label, { label = it.take(80) }, label = { Text("시점 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Text(if (simulation) "연습 데이터" else "Wi-Fi 결과도 확인한 뒤 저장하세요.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                     Text("확보한 최근 주소 · BLE ${records.count { it.source == ScanSource.BLE && it.presence != SignalPresence.HISTORY }} · Wi-Fi ${records.count { it.source == ScanSource.WIFI && it.presence != SignalPresence.HISTORY }}", color = RfColors.primary, style = MaterialTheme.typography.labelSmall)
-                    Button(onClick = { vm.saveSnapshot(area, label, asBaseline = baseline == null) }, enabled = scanning && !busy && area.isNotBlank() && label.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (baseline == null) "① 입실 전 저장" else "② $label 저장하고 비교") }
+                    Button(onClick = { vm.saveSnapshot(area, label, asBaseline = baseline == null) }, enabled = scanning && !busy && area.isNotBlank() && label.isNotBlank(), modifier = Modifier.fillMaxWidth()) { RfGlyph(if (baseline == null) RfSymbol.SNAPSHOT else RfSymbol.UNION, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text(if (baseline == null) "① 입실 전 저장" else "② $label 저장하고 비교") }
                     TextButton(onClick = { captureOptions = !captureOptions }) { Text(if (captureOptions) "기록 옵션 닫기" else "다른 시점·기준 다시 설정") }
                     if (captureOptions) {
                         Text("기준은 최근 관측, 비교는 최근 관측과 기준 이후 새 주소의 포착 이력을 저장합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
@@ -126,10 +130,11 @@ fun SnapshotScreen(vm: AppViewModel) {
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("추가" to result.added.size, "미관측" to result.notObserved.size, "공통" to result.common.size).forEach { (name, count) ->
-                        FilterChip(selected = group == name, onClick = { group = name }, label = { Text("$name $count") })
+                        FilterChip(selected = group == name, onClick = { group = name }, label = { Text("$name $count") }, leadingIcon = { RfGlyph(when (name) { "전체 이력" -> RfSymbol.UNION; "추가" -> RfSymbol.BLUETOOTH; "미관측" -> RfSymbol.CLOCK; else -> RfSymbol.CHECK }, size = 16.dp) })
                     }
                 }
-                Text(when (group) { "추가" -> "기준에 없던 주소 · 확인 후보"; "미관측" -> "이번 자료에 없는 주소"; else -> "두 시점 모두 기록된 주소" }, color = RfColors.primary, style = MaterialTheme.typography.bodySmall)
+                FilterChip(selected = group == "전체 이력", onClick = { group = "전체 이력" }, label = { Text("전체 이력 ${union.size}") }, leadingIcon = { RfGlyph(RfSymbol.UNION, size = 16.dp) })
+                Text(when (group) { "추가" -> "기준에 없던 주소 · 사라져도 기록 유지"; "미관측" -> "이번 자료에 없는 주소"; "공통" -> "두 시점 모두 기록된 주소"; else -> "기준~비교 사이 등장 주소의 합집합 · 중복 제외" }, color = RfColors.primary, style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     ExplanationToggle("비교 시점", comparisonInfo, { comparisonInfo = !comparisonInfo })
                     ExplanationToggle("결과 의미 보기", resultHelp, { resultHelp = !resultHelp })
@@ -139,7 +144,8 @@ fun SnapshotScreen(vm: AppViewModel) {
                 Text(when (group) {
                     "추가" -> "추가: 입실 전 기준에 없고 이후 포착된 주소입니다. 아래 카드를 눌러 확인하세요."
                     "미관측" -> "미관측: 기준에는 있었지만 이번 자료에는 없는 주소입니다. 전원이 꺼졌거나 떠났다는 뜻은 아닙니다."
-                    else -> "공통: 두 시점에 모두 기록된 주소입니다. +dB는 더 강하게, −dB는 더 약하게 수신됐다는 뜻입니다."
+                    "공통" -> "공통: 두 시점에 모두 기록된 주소입니다. +dB는 더 강하게, −dB는 더 약하게 수신됐다는 뜻입니다."
+                    else -> "전체 이력: 같은 공간·같은 모드에서 선택한 기준부터 비교 시점까지 저장된 자료와 비교 대상의 합집합입니다. 사라진 주소도 포함합니다. 각 카드는 가장 최근 수신된 탐색의 기록이며 중복된 스냅샷의 횟수를 더하지 않습니다. 저장하지 않은 이전 탐색은 포함되지 않습니다."
                 }, color = RfColors.primary, style = MaterialTheme.typography.bodySmall)
                 Text("추가 주소는 확인 후보입니다. 일반 기기·임의 주소 변경·일시적 수신 누락도 원인일 수 있어 부정행위로 단정할 수 없습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                 }
@@ -168,8 +174,8 @@ fun SnapshotScreen(vm: AppViewModel) {
             }
             items(rows, key = { "compare-${it.matchKey}" }) { signal ->
                 val change = changes[signal.matchKey]
-                val tag = when (group) { "추가" -> "추가 관측"; "미관측" -> "이번에 미관측"; else -> change?.let { "공통 · ${if (it >= 0) "+" else ""}${it.roundToInt()} dB" } ?: "공통" }
-                Surface(onClick = { selectedSignal = signal; selectedFromBaseline = group == "미관측"; detailHelp = false; timelineExpanded = false }, color = RfColors.surface, shape = RoundedCornerShape(16.dp)) {
+                val tag = when (group) { "추가" -> "추가 관측"; "미관측" -> "이번에 미관측"; "전체 이력" -> "한 번 이상 관측"; else -> change?.let { "공통 · ${if (it >= 0) "+" else ""}${it.roundToInt()} dB" } ?: "공통" }
+                Surface(onClick = { selectedSignal = signal; selectedFromBaseline = group == "미관측"; detailHelp = false; timelineExpanded = false; periodsExpanded = false }, color = RfColors.surface, shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("$tag · ${signal.source} · ${signal.presence.label}", color = if (group == "추가") RfColors.warning else RfColors.primary, style = MaterialTheme.typography.labelSmall)
                         SignalSummary(signal)
@@ -214,11 +220,16 @@ fun SnapshotScreen(vm: AppViewModel) {
             SignalSummary(signal)
             Text("${if (savedTarget != null || selectedFromBaseline) "저장 당시" else "현재"} · ${signal.presence.label}", color = RfColors.primary)
             if (selectedFromBaseline) Text("입실 전 기준 기록 · 이번에는 미관측", color = RfColors.warning)
+            ExplanationToggle("관측 구간·재등장 보기", periodsExpanded, { periodsExpanded = !periodsExpanded })
+            if (periodsExpanded) ObservationPeriodList(signal)
             ExplanationToggle("식별 근거·시간 해석 보기", detailHelp, { detailHelp = !detailHelp })
             if (detailHelp) {
             Text("최초~마지막 수신 사이의 관측 구간입니다. 계속 송신·연결된 시간은 아니며 중간 공백은 알 수 없습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
             Text("${signal.source} · ${signal.address}")
             Text("수신 세기 ${signal.rssi?.roundToInt() ?: "—"} dBm · 0에 가까울수록 강합니다. 거리나 위치를 확정하지 않습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+            estimateDistance(signal.rssi, signal.referenceRssiAt1m)?.let { estimate ->
+                Text("${estimate.label} · ${estimate.rangeLabel}\n${if (estimate.assumedReference) "1m RSSI −59 dBm 가정 · 기기별 보정 없음" else "기기에서 받은 1m RSSI 기준 사용"}\nn=2.7, RSSI ±6 dB·경로손실 n=2~4로 범위를 계산합니다. 미보정 기준은 ±10 dB도 적용합니다. 범위는 모델 가정이며 통계적 신뢰구간이 아닙니다. 벽·인체·송신 출력에 따라 실제 거리는 범위 밖일 수 있습니다. 마지막 수신 기준이며 현재 위치가 아닙니다.", style = MaterialTheme.typography.bodySmall, color = RfColors.textDim)
+            }
             Text(signal.manufacturer)
             val audio = signal.audioNameMatch
             AudioIdentityPanel(audio, audio?.model ?: signal.modelHint, audioEvidenceNote(audio, signal.manufacturerIds))

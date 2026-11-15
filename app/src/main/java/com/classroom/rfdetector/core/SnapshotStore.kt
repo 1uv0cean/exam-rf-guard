@@ -15,13 +15,13 @@ class SnapshotStore(private val directory: File) {
     fun load(): List<SignalSnapshot> {
         if (!file.exists()) return emptyList()
         val root = JSONObject(file.readText(Charsets.UTF_8))
-        require(root.getInt("version") == 1) { "지원하지 않는 스냅샷 파일 버전입니다." }
+        require(root.getInt("version") in 1..2) { "지원하지 않는 스냅샷 파일 버전입니다." }
         val snapshots = root.getJSONArray("snapshots")
         return (0 until snapshots.length()).map { index -> decode(snapshots.getJSONObject(index)) }
     }
 
     fun save(snapshots: List<SignalSnapshot>) {
-        val root = JSONObject().put("version", 1).put("snapshots", JSONArray().apply { snapshots.forEach { put(encode(it)) } })
+        val root = JSONObject().put("version", 2).put("snapshots", JSONArray().apply { snapshots.forEach { put(encode(it)) } })
         val temporary = File.createTempFile("signal-snapshots-", ".tmp", directory)
         try {
             FileOutputStream(temporary).use { stream ->
@@ -49,6 +49,10 @@ class SnapshotStore(private val directory: File) {
                 put("observations", signal.observationCount); put("manufacturer", signal.manufacturer); put("model", signal.modelHint ?: JSONObject.NULL)
                 put("presence", signal.presence.name)
                 put("manufacturerIds", JSONArray(signal.manufacturerIds.sorted()))
+                put("referenceRssiAt1m", signal.referenceRssiAt1m ?: JSONObject.NULL)
+                put("periods", JSONArray().apply { signal.periods.forEach { period ->
+                    put(JSONObject().put("first", period.firstSeenMs).put("last", period.lastSeenMs).put("count", period.count))
+                } })
             })
         } })
     }
@@ -60,7 +64,12 @@ class SnapshotStore(private val directory: File) {
                 if (row.isNull("rssi")) null else row.getDouble("rssi"), row.getLong("firstSeenMs"), row.getLong("lastSeenMs"),
                 row.getInt("observations"), row.getString("manufacturer"), if (row.isNull("model")) null else row.getString("model"),
                 SignalPresence.valueOf(row.optString("presence", SignalPresence.RECENT.name)),
-                row.optJSONArray("manufacturerIds")?.let { ids -> (0 until ids.length()).map { ids.getInt(it) }.toSet() } ?: emptySet())
+                row.optJSONArray("manufacturerIds")?.let { ids -> (0 until ids.length()).map { ids.getInt(it) }.toSet() } ?: emptySet(),
+                row.optJSONArray("periods")?.let { periods -> (0 until periods.length()).map { index ->
+                    val period = periods.getJSONObject(index)
+                    ObservationPeriod(period.getLong("first"), period.getLong("last"), period.getInt("count"))
+                } } ?: emptyList(),
+                if (row.isNull("referenceRssiAt1m")) null else row.getDouble("referenceRssiAt1m"))
         } }
         return SignalSnapshot(json.getString("id"), json.getString("area"), json.getString("label"), json.getLong("capturedAtMs"),
             json.getLong("scanStartedAtMs"), json.getBoolean("simulation"), signals)
