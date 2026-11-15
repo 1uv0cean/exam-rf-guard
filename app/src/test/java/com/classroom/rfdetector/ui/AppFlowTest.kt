@@ -139,7 +139,7 @@ class AppFlowTest {
         compose.setContent { AppRfTheme { App() } }
         compose.onNodeWithText("연습 모드").performClick()
         compose.onNodeWithText("◎  탐색 시작").performClick()
-        compose.onNodeWithText("Wi-Fi 채널").performClick()
+        compose.onNodeWithContentDescription("Wi-Fi 채널").performClick()
         scrollToText("액세스 포인트 · 2")
         saveScreen("channels-landscape")
         compose.onNodeWithText("■  탐색 중지").assertIsDisplayed().performClick()
@@ -234,8 +234,8 @@ class AppFlowTest {
         saveScreen("snapshot-signal-timeline")
         compose.onNodeWithText("닫기").performClick()
         compose.onNodeWithText("■  탐색 중지").performClick()
-        scrollToText("이전 기록 다시 보기 · 2개 ▾")
-        compose.onNodeWithText("이전 기록 다시 보기 · 2개 ▾").performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("이전 기록 다시 보기", substring = true))
+        compose.onNodeWithText("이전 기록 다시 보기", substring = true).performScrollTo().performClick()
         scrollToText("저장 자료 검색 · 공간/시점")
         compose.onNodeWithText("저장 자료 검색 · 공간/시점").performTextInput("없는 공간")
         scrollToText("조건에 맞는 저장 자료가 없습니다")
@@ -257,6 +257,7 @@ class AppFlowTest {
         }
         compose.onNodeWithText("연습 모드").performClick()
         compose.onNodeWithText("◎  탐색 시작").performClick()
+        compose.onNodeWithText("비교").performClick()
         scrollToText("① 입실 전 저장")
         compose.onNodeWithText("① 입실 전 저장").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("스냅샷 저장됨", substring = true).fetchSemanticsNodes().isNotEmpty() }

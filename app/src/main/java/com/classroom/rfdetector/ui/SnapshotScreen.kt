@@ -24,7 +24,9 @@ import kotlin.math.roundToInt
 @Composable
 fun SnapshotScreen(vm: AppViewModel) {
     val records by vm.devices.collectAsState()
-    val snapshots by vm.savedSnapshots.collectAsState()
+    val manualSnapshots by vm.savedSnapshots.collectAsState()
+    val checkpoints by vm.checkpoints.collectAsState()
+    val snapshots = (manualSnapshots + checkpoints).sortedByDescending { it.capturedAtMs }
     val baseline by vm.baselineSnapshot.collectAsState()
     val savedTarget by vm.comparisonSnapshot.collectAsState()
     val simulation by vm.simMode.collectAsState()
@@ -33,6 +35,7 @@ fun SnapshotScreen(vm: AppViewModel) {
     val error by vm.snapshotError.collectAsState()
     val area by vm.areaDraft.collectAsState()
     val session by vm.scanSession.collectAsState()
+    val healthTick by vm.healthTick.collectAsState()
     var label by rememberSaveable { mutableStateOf("입실 전") }
     var group by rememberSaveable { mutableStateOf("추가") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -90,9 +93,10 @@ fun SnapshotScreen(vm: AppViewModel) {
             Surface(color = RfColors.surface, shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(if (baseline == null) "빈 시험장을 먼저 저장하세요" else "입실 후, 같은 자리에서 비교하세요", fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(area, vm::updateAreaDraft, label = { Text("공간 이름 · 예: 3층 제1시험실") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(area, vm::updateAreaDraft, label = { Text("공간 이름 · 예: 3층 제1시험실") }, readOnly = scanning && session?.areaLocked == true, singleLine = true, modifier = Modifier.fillMaxWidth())
                     session?.takeIf { it.areaLocked }?.let {
                         Text("이번 탐색 공간: ${it.area}", color = RfColors.primary, style = MaterialTheme.typography.labelSmall)
+                        if (scanning) Text("공간을 바꾸려면 탐색을 중지하세요.", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
                         if (!it.area.equals(area.trim(), true)) Text("다른 공간은 탐색을 중지한 뒤 다시 시작하세요. 기존 저장 자료는 유지됩니다.", color = RfColors.warning, style = MaterialTheme.typography.bodySmall)
                     }
                     if (captureOptions) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,14 +104,20 @@ fun SnapshotScreen(vm: AppViewModel) {
                     }
                     if (captureOptions) OutlinedTextField(label, { label = it.take(80) }, label = { Text("시점 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Text(if (simulation) "연습 데이터" else "Wi-Fi 결과도 확인한 뒤 저장하세요.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
-                    Text("확보한 최근 주소 · BLE ${records.count { it.source == ScanSource.BLE && it.presence != SignalPresence.HISTORY }} · Wi-Fi ${records.count { it.source == ScanSource.WIFI && it.presence != SignalPresence.HISTORY }}", color = RfColors.primary, style = MaterialTheme.typography.labelSmall)
+                    if (scanning && !simulation) {
+                        val now = maxOf(healthTick, System.currentTimeMillis())
+                        val bleHealth = bleScanHealth(true, vm.ble.isUsable(), vm.ble.active, vm.ble.lastReceivedAtMs, vm.ble.lastError, now)
+                        val wifiHealth = wifiScanHealth(true, vm.wifi.isEnabled(), !vm.locationServicesOff(), vm.wifi.lastUpdatedMs, vm.wifi.lastError, now)
+                        Text("BLE ${bleHealth.label} · Wi-Fi ${wifiHealth.label}", color = if (bleHealth.warning || wifiHealth.warning) RfColors.warning else RfColors.primary, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text("${if (baseline == null) "이번 탐색에 포착된" else "최근 수신"} 주소 · BLE ${records.count { it.source == ScanSource.BLE && (baseline == null || it.presence != SignalPresence.HISTORY) }} · Wi-Fi ${records.count { it.source == ScanSource.WIFI && (baseline == null || it.presence != SignalPresence.HISTORY) }}", color = RfColors.primary, style = MaterialTheme.typography.labelSmall)
                     Button(onClick = { vm.saveSnapshot(area, label, asBaseline = baseline == null) }, enabled = scanning && !busy && area.isNotBlank() && label.isNotBlank(), modifier = Modifier.fillMaxWidth()) { RfGlyph(if (baseline == null) RfSymbol.SNAPSHOT else RfSymbol.UNION, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text(if (baseline == null) "① 입실 전 저장" else "② $label 저장하고 비교") }
                     TextButton(onClick = { captureOptions = !captureOptions }) { Text(if (captureOptions) "기록 옵션 닫기" else "다른 시점·기준 다시 설정") }
                     if (captureOptions) {
-                        Text("기준은 최근 관측, 비교는 최근 관측과 기준 이후 새 주소의 포착 이력을 저장합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+                        Text("기준은 이번 탐색에 한 번이라도 포착된 주소, 비교는 최근 수신과 기준 이후 새 주소의 이력을 저장합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                         if (baseline != null) OutlinedButton(onClick = { vm.saveSnapshot(area, "입실 전", asBaseline = true) }, enabled = scanning && !busy && area.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("입실 전 기준 다시 저장") }
                     }
-                    if (!scanning) Text("새 스냅샷을 저장하려면 탐색을 시작하세요. 저장된 자료는 탐색 없이 비교할 수 있습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+                    if (!scanning) Text("공간 이름을 입력한 뒤 아래 ‘탐색 시작’을 누르세요. 저장된 자료는 탐색 없이 비교할 수 있습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     error?.let { Text(it, color = RfColors.warning, style = MaterialTheme.typography.bodySmall) }
                 }
@@ -145,10 +155,11 @@ fun SnapshotScreen(vm: AppViewModel) {
                     "추가" -> "추가: 입실 전 기준에 없고 이후 포착된 주소입니다. 아래 카드를 눌러 확인하세요."
                     "미관측" -> "미관측: 기준에는 있었지만 이번 자료에는 없는 주소입니다. 전원이 꺼졌거나 떠났다는 뜻은 아닙니다."
                     "공통" -> "공통: 두 시점에 모두 기록된 주소입니다. +dB는 더 강하게, −dB는 더 약하게 수신됐다는 뜻입니다."
-                    else -> "전체 이력: 같은 공간·같은 모드에서 선택한 기준부터 비교 시점까지 저장된 자료와 비교 대상의 합집합입니다. 사라진 주소도 포함합니다. 각 카드는 가장 최근 수신된 탐색의 기록이며 중복된 스냅샷의 횟수를 더하지 않습니다. 저장하지 않은 이전 탐색은 포함되지 않습니다."
+                    else -> "전체 이력: 같은 공간·같은 모드에서 선택한 기준부터 비교 시점까지의 수동·자동 보존 자료와 비교 대상의 합집합입니다. 사라진 주소도 포함합니다. 각 카드는 가장 최근 수신된 탐색의 기록이며 중복된 스냅샷의 횟수를 더하지 않습니다."
                 }, color = RfColors.primary, style = MaterialTheme.typography.bodySmall)
                 Text("추가 주소는 확인 후보입니다. 일반 기기·임의 주소 변경·일시적 수신 누락도 원인일 수 있어 부정행위로 단정할 수 없습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                 }
+                if (comparisonInfo && baseline != null) SignalExportButton(baseline!!, target, snapshots)
             }
             if (analysisOptions) item {
                 OutlinedTextField(query, { query = it }, label = { Text("비교 결과 검색 · 이름/제조사/모델/MAC") },
@@ -232,7 +243,9 @@ fun SnapshotScreen(vm: AppViewModel) {
             }
             Text(signal.manufacturer)
             val audio = signal.audioNameMatch
-            AudioIdentityPanel(audio, audio?.model ?: signal.modelHint, audioEvidenceNote(audio, signal.manufacturerIds))
+            val wearable = signal.wearableNameMatch
+            if (wearable != null) WearableIdentityPanel(wearable)
+            else AudioIdentityPanel(audio, audio?.model ?: signal.modelHint, audioEvidenceNote(audio, signal.manufacturerIds))
             if (audio != null && signal.modelHint != null && audio.model != signal.modelHint) Text("저장 당시 모델 후보: ${signal.modelHint}\n위 후보는 저장된 광고 이름을 현재 규칙으로 해석한 값입니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
             if (selectedFromBaseline) Text("이번 시점에는 미관측입니다. 아래 상태와 시간은 입실 전 기준 기록입니다.", color = RfColors.warning)
             Text(signal.presence.observationMeaning(savedTarget != null || selectedFromBaseline))

@@ -30,9 +30,9 @@ data class SignalSnapshot(
     val signals: List<SnapshotSignal>,
 ) {
     companion object {
-        fun capture(id: String, area: String, label: String, capturedAtMs: Long, scanStartedAtMs: Long, simulation: Boolean, devices: List<TrackedDevice>, includeNewHistorySinceMs: Long? = null): SignalSnapshot {
+        fun capture(id: String, area: String, label: String, capturedAtMs: Long, scanStartedAtMs: Long, simulation: Boolean, devices: List<TrackedDevice>, includeNewHistorySinceMs: Long? = null, includeAllHistory: Boolean = false): SignalSnapshot {
             val signals = devices.filter {
-                it.presence != SignalPresence.HISTORY ||
+                includeAllHistory || it.presence != SignalPresence.HISTORY ||
                     (includeNewHistorySinceMs != null && it.isBaselineNew && it.lastSeenMs >= includeNewHistorySinceMs)
             }.map { device ->
                     SnapshotSignal(device.key, device.source, device.displayName, device.rssiEma, device.firstSeenMs, device.lastSeenMs,

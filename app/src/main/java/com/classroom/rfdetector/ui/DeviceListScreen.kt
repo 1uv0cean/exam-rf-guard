@@ -50,6 +50,7 @@ fun DeviceListScreen(vm: AppViewModel, devices: List<TrackedDevice>, baselineSet
             "최근 수신" -> device.presence == SignalPresence.RECENT
             "수신 기록" -> device.presence == SignalPresence.HISTORY
             "오디오 후보" -> device.identity.audioNameMatch != null
+            "웨어러블 후보" -> device.identity.wearableNameMatch != null
             else -> true
         }
         matchesFilter && device.identity.matchesQuery(query, device.displayName, device.key)
@@ -70,7 +71,7 @@ fun DeviceListScreen(vm: AppViewModel, devices: List<TrackedDevice>, baselineSet
         item { OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("이름 · 제조사 · 모델 · MAC 검색") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("전체", "신규", "오디오 후보", "최근 수신", "수신 기록", "BLE", "Wi-Fi").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(if (label == "신규") "신규 $newCount" else label) }) }
+                listOf("전체", "신규", "오디오 후보", "웨어러블 후보", "최근 수신", "수신 기록", "BLE", "Wi-Fi").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(if (label == "신규") "신규 $newCount" else label) }) }
             }
         }
         item { Text("${visible.size}개 표시 · 기기를 눌러 신호 이력 확인", style = MaterialTheme.typography.labelSmall, color = RfColors.textDim) }
@@ -93,7 +94,9 @@ fun DeviceListScreen(vm: AppViewModel, devices: List<TrackedDevice>, baselineSet
             Text("제조사 식별", fontWeight = FontWeight.SemiBold)
             Text("BLE 광고 회사: ${selected.identity.advertisedCompanies.joinToString().ifBlank { "정보 없음" }}")
             Text("MAC 등록사: ${selected.identity.macOrganization ?: "확인 불가"}")
-            AudioIdentityPanel(selected.identity.audioNameMatch, selected.identity.modelHint, selected.identity.evidenceNote)
+            val wearable = selected.identity.wearableNameMatch
+            if (wearable != null) WearableIdentityPanel(wearable)
+            else AudioIdentityPanel(selected.identity.audioNameMatch, selected.identity.modelHint, selected.identity.evidenceNote)
             Text("모델 후보는 BLE 광고 이름에서 읽은 값입니다. 광고 회사 ID는 광고 데이터의 회사 식별자이며 실제 제품 제조사와 다를 수 있습니다. ${selected.identity.addressNote}", style = MaterialTheme.typography.bodySmall, color = RfColors.textDim)
             Text("${selected.source} · ${selected.distanceClass.label} · ${selected.rssiEma?.roundToInt() ?: "—"} dBm")
             Text("${selected.presence.label} · 마지막 수신 ${selected.lastSeenAgeSeconds}초 전\n총 ${selected.observationCount}회 · 최고 ${selected.peakRssi ?: "—"} dBm", color = RfColors.primary)

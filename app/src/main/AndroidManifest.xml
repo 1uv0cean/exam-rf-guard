@@ -8,8 +8,8 @@
     <!-- WifiManager 스캔 결과는 Android 13+에서도 정확한 위치 권한이 필요하다. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- API 33+: 위치 권한 없이 Wi-Fi 스캔 -->
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <!-- API 33+ 주변 Wi-Fi 기기 권한. AP 스캔에는 정확한 위치 권한도 계속 필요하다. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />

@@ -42,6 +42,8 @@ internal fun SnapshotSteps(current: Int) {
 @Composable
 internal fun SignalSummary(signal: SnapshotSignal) {
     val audio = signal.audioNameMatch
+    val wearable = signal.wearableNameMatch
+    val nameBrand = audio?.brand ?: wearable?.brand
     val distance = estimateDistance(signal.rssi, signal.referenceRssiAt1m)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -49,13 +51,14 @@ internal fun SignalSummary(signal: SnapshotSignal) {
                 signal.source == ScanSource.WIFI -> RfSymbol.WIFI
                 audio?.kind == AudioKind.EARPHONES -> RfSymbol.EARPHONES
                 audio?.kind == AudioKind.HEADPHONES -> RfSymbol.HEADPHONES
+                wearable != null -> wearable.kind.symbol()
                 else -> RfSymbol.BLUETOOTH
             }
             SummaryField("유형", signal.equipmentType(), Modifier.weight(1f), symbol)
-            SummaryField(if (audio != null) "제조사 후보" else "제조사·등록사", audio?.brand ?: signal.manufacturer, Modifier.weight(1f), RfSymbol.COMPANY)
+            SummaryField(if (nameBrand != null) "제조사 후보" else "제조사·등록사", nameBrand ?: signal.manufacturer, Modifier.weight(1f), RfSymbol.COMPANY)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SummaryField("모델 후보", audio?.model ?: signal.modelHint ?: "미확인", Modifier.weight(1f), RfSymbol.MODEL)
+            SummaryField("모델 후보", audio?.model ?: wearable?.model ?: signal.modelHint ?: "미확인", Modifier.weight(1f), RfSymbol.MODEL)
             SummaryField("예상 거리 · 마지막 수신", distance?.let { it.label + if (it.assumedReference) " · 미보정" else " · 추정" } ?: "추정 불가", Modifier.weight(1f), RfSymbol.DISTANCE)
         }
         HorizontalDivider(color = RfColors.grid)

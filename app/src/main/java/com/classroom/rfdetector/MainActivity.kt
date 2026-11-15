@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -47,9 +49,17 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun App() {
+    SignalExportHost { AppContent() }
+}
+
+@Composable
+private fun AppContent() {
     val context = LocalContext.current
     val compact = LocalConfiguration.current.screenWidthDp < 360 || LocalDensity.current.fontScale > 1.2f
-    val vm = remember { AppViewModel(context.applicationContext) }
+    val vm = remember(context) { ViewModelProvider(context as ComponentActivity, object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AppViewModel(context.applicationContext) as T
+    })[AppViewModel::class.java] }
     val lifecycle = (context as ComponentActivity).lifecycle
     var tab by rememberSaveable { mutableIntStateOf(2) }
     val screenStates = rememberSaveableStateHolder()
@@ -69,7 +79,7 @@ fun App() {
             if (event == Lifecycle.Event.ON_STOP) vm.stopScan()
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); vm.shutdown() }
+        onDispose { lifecycle.removeObserver(observer) }
     }
     val devices by vm.devices.collectAsState()
     val scanning by vm.scanning.collectAsState()
@@ -103,17 +113,21 @@ fun App() {
                 Spacer(Modifier.weight(1f))
                 if (!compact) Text(if (simMode) "가상 데이터" else "BLE + Wi-Fi", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
             }
-            TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, divider = {}) {
-                listOf("레이더", "기기 ${devices.size}", "비교", "Wi-Fi 채널").forEachIndexed { index, title ->
-                    val label = if (compact) listOf("탐색", "기기", "비교", "채널")[index] else title
-                    Tab(selected = tab == index, onClick = { tab = index }, modifier = Modifier.semantics { contentDescription = title }, selectedContentColor = RfColors.primary, unselectedContentColor = RfColors.textDim, text = { Text(label, fontWeight = FontWeight.SemiBold) })
+            val tabOrder = listOf(2, 1, 4, 0, 3)
+            TabRow(selectedTabIndex = tabOrder.indexOf(tab), containerColor = Color.Transparent, divider = {}) {
+                tabOrder.forEach { index ->
+                    val title = listOf("레이더", "기기 ${devices.size}", "비교", "Wi-Fi 채널", "수신 상태")[index]
+                    val label = if (compact) listOf("탐색", "기기", "비교", "채널", "수신")[index] else listOf("레이더", "기기 ${devices.size}", "비교", "채널", "수신")[index]
+                    Tab(selected = tab == index, onClick = { tab = index }, modifier = Modifier.semantics { contentDescription = title }, selectedContentColor = RfColors.primary, unselectedContentColor = RfColors.textDim) {
+                        Text(label, Modifier.padding(horizontal = 2.dp, vertical = 14.dp), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
                 }
             }
             latestNewSignal?.let { name ->
                 Surface(color = RfColors.surfaceAlt) {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("새 신호 포착 · $name", Modifier.weight(1f), color = RfColors.warning, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                        TextButton(onClick = { tab = 1; vm.latestNewSignal.value = null }) { Text("기록 확인") }
+                        TextButton(onClick = { tab = 2; vm.comparisonSnapshot.value = null; vm.latestNewSignal.value = null }) { Text("추가 확인") }
                     }
                 }
             }
@@ -122,7 +136,8 @@ fun App() {
                     0 -> RadarScreen(vm, devices.filter { it.presence == SignalPresence.RECENT }, heading)
                     1 -> DeviceListScreen(vm, devices, baselineSet, newCount)
                     2 -> SnapshotScreen(vm)
-                    else -> ChannelScreen(vm)
+                    3 -> ChannelScreen(vm)
+                    else -> ScanStatusScreen(vm, onCompare = { tab = 2 }, onDevices = { tab = 1 })
                 } }
             }
             Surface(color = RfColors.surface) {

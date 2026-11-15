@@ -33,10 +33,22 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import com.classroom.rfdetector.core.CheckpointStore
+import java.io.File
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.asCoroutineDispatcher
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
-/** 스캐너/추적/위치엔진/지예거를 묶는 상태 허브. Activity 와 1:1 로 붙는다 */
-class AppViewModel(private val app: Context) {
+/** Retains scan and comparison state across activity recreation; reception stops off-screen. */
+class AppViewModel(private val app: Context) : ViewModel() {
+    companion object {
+        private val archiveDispatcher = Executors.newSingleThreadExecutor { task -> Thread(task, "rf-archive").apply { isDaemon = true } }.asCoroutineDispatcher()
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Disk writes finish after the activity stops; scanning remains foreground-only.
+    private val storageScope = CoroutineScope(SupervisorJob() + archiveDispatcher)
+    private var closed = false
 
     val tracker = DeviceTracker()
     val engine = LocalizationEngine()
@@ -67,6 +79,13 @@ class AppViewModel(private val app: Context) {
     val scanSession = MutableStateFlow<ScanSession?>(null)
     private val snapshotStore = SnapshotStore(app.filesDir)
     private var snapshotStorageReady = false
+    val checkpoints = MutableStateFlow<List<SignalSnapshot>>(emptyList())
+    val checkpointError = MutableStateFlow<String?>(null)
+    val checkpointBusy = MutableStateFlow(false)
+    private val checkpointStore = CheckpointStore(File(app.filesDir, "checkpoints").apply { mkdirs() })
+    private val pendingCheckpoints = AtomicInteger(0)
+    private var checkpointJob: Job? = null
+    val healthTick = MutableStateFlow(0L)
 
     data class ApRow(
         val ssid: String?,
@@ -83,7 +102,14 @@ class AppViewModel(private val app: Context) {
     init {
         scope.launch {
             try {
-                savedSnapshots.value = withContext(Dispatchers.IO) { snapshotStore.load() }
+                val loaded = withContext(archiveDispatcher) { checkpointStore.load() }
+                checkpoints.value = (loaded + checkpoints.value).groupBy { it.id }.values
+                    .map { copies -> copies.maxBy { it.capturedAtMs } }.sortedByDescending { it.capturedAtMs }
+            } catch (_: Exception) { checkpointError.value = "자동 보존 기록을 불러오지 못했습니다. 기존 파일을 유지합니다." }
+        }
+        scope.launch {
+            try {
+                savedSnapshots.value = withContext(archiveDispatcher) { snapshotStore.load() }
                 snapshotStorageReady = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -133,7 +159,7 @@ class AppViewModel(private val app: Context) {
     }
 
     fun startScan() {
-        if (scanning.value) return
+        if (scanning.value || closed) return
         tracker.clear()
         engine.clear()
         geiger.setClass(DistanceClass.UNKNOWN)
@@ -172,6 +198,12 @@ class AppViewModel(private val app: Context) {
                 delay(100)
             }
         }
+        checkpointJob = scope.launch {
+            while (isActive) {
+                delay(5_000)
+                preserveSession()
+            }
+        }
     }
 
     private fun onObservation(obs: RfObservation) {
@@ -189,7 +221,9 @@ class AppViewModel(private val app: Context) {
     fun stopScan() {
         if (!scanning.value) return
         refresh()
+        preserveSession()
         scanning.value = false
+        checkpointJob?.cancel(); checkpointJob = null
         simJob?.cancel(); simJob = null
         refreshJob?.cancel(); refreshJob = null
         ble.stop()
@@ -237,18 +271,21 @@ class AppViewModel(private val app: Context) {
         refresh()
         val snapshot = SignalSnapshot.capture(java.util.UUID.randomUUID().toString(), area.trim().take(80), label.trim().take(80),
             System.currentTimeMillis(), session.startedAtMs, simMode.value, devices.value,
-            includeNewHistorySinceMs = if (asBaseline || !baselineSet.value) null else baselineSnapshot.value?.capturedAtMs)
+            includeNewHistorySinceMs = if (asBaseline || !baselineSet.value) null else baselineSnapshot.value?.capturedAtMs,
+            includeAllHistory = asBaseline)
         val updated = listOf(snapshot) + savedSnapshots.value
         snapshotBusy.value = true
         snapshotError.value = null
-        scope.launch {
+        storageScope.launch {
             try {
-                withContext(Dispatchers.IO) { snapshotStore.save(updated) }
-                savedSnapshots.value = updated
-                if (scanSession.value?.id == session.id && snapshot.simulation == simMode.value) {
-                    if (asBaseline) selectBaseline(snapshot) else comparisonSnapshot.value = snapshot
+                snapshotStore.save(updated)
+                withContext(Dispatchers.Main.immediate) {
+                    savedSnapshots.value = updated
+                    if (!closed && scanSession.value?.id == session.id && snapshot.simulation == simMode.value) {
+                        if (asBaseline) selectBaseline(snapshot) else comparisonSnapshot.value = snapshot
+                    }
+                    statusMsg.value = "스냅샷 저장됨 · ${snapshot.area} · ${snapshot.label} · ${snapshot.signals.size}개 신호"
                 }
-                statusMsg.value = "스냅샷 저장됨 · ${snapshot.area} · ${snapshot.label} · ${snapshot.signals.size}개 신호"
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -316,6 +353,7 @@ class AppViewModel(private val app: Context) {
 
     private fun refresh() {
         val now = System.currentTimeMillis()
+        healthTick.value = now
         val list = tracker.snapshot(now, includeInactive = true).map { d ->
             val est = if (d.presence == SignalPresence.RECENT) engine.deviceFilter(d.trackingKey).estimate() else null
             if (d.presence == SignalPresence.HISTORY) engine.remove(d.trackingKey)
@@ -350,6 +388,30 @@ class AppViewModel(private val app: Context) {
 
     fun shutdown() {
         stopScan()
+        closed = true
         scope.cancel()
     }
+
+    override fun onCleared() { shutdown() }
+
+    private fun preserveSession() {
+        val session = scanSession.value ?: return
+        scanSession.value = session.copy(areaLocked = true)
+        val now = System.currentTimeMillis()
+        val record = SignalSnapshot.capture("auto-${session.id}", session.area, "자동 보존 · 전체 수신 이력", now,
+            session.startedAtMs, simMode.value, devices.value, includeAllHistory = true)
+        checkpointBusy.value = true
+        pendingCheckpoints.incrementAndGet()
+        storageScope.launch {
+            try {
+                val stored = checkpointStore.upsert(record)
+                withContext(Dispatchers.Main.immediate) {
+                    checkpoints.value = stored
+                    checkpointError.value = null
+                }
+            } catch (_: Exception) { withContext(Dispatchers.Main.immediate) { checkpointError.value = "자동 보존 실패 · 비교 화면에서 수동 저장을 시도하세요." } }
+            finally { withContext(Dispatchers.Main.immediate) { checkpointBusy.value = pendingCheckpoints.decrementAndGet() > 0 } }
+        }
+    }
+
 }

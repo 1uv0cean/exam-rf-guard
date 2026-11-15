@@ -21,22 +21,29 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
         private set
     @Volatile var lastUpdatedMs: Long? = null
         private set
+    @Volatile var active: Boolean = false
+        private set
+    @Volatile var lastError: String? = null
+        private set
     var onError: ((String) -> Unit)? = null
     private var job: Job? = null
     private var receiver: BroadcastReceiver? = null
     private val observedTimestamps = mutableMapOf<String, Long>()
 
+    fun isEnabled(): Boolean = try { wifi.isWifiEnabled } catch (_: SecurityException) { false }
+
     fun start(onObs: (RfObservation) -> Unit, periodMs: Long = 30_000L) {
         stop()
         lastResults = emptyList()
         lastUpdatedMs = null
+        lastError = null
         observedTimestamps.clear()
         val startedAtElapsedUs = SystemClock.elapsedRealtimeNanos() / 1000
         val listener = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (receiver !== this) return
                 if (!intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false)) {
-                    onError?.invoke("Wi-Fi 갱신 대기 · 시스템이 탐색 빈도를 제한할 수 있습니다")
+                    reportError("Wi-Fi 갱신 대기 · 시스템이 탐색 빈도를 제한할 수 있습니다")
                     return
                 }
                 try {
@@ -47,6 +54,7 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
                     }
                     lastResults = results
                     lastUpdatedMs = now
+                    lastError = null
                     results.forEach { result ->
                         val key = radioKey(ScanSource.WIFI, result.BSSID)
                         val previousTimestamp = observedTimestamps[key]
@@ -56,18 +64,19 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
                             result.SSID.isNullOrBlank(), now - (elapsed - result.timestamp / 1000)))
                     }
                 } catch (_: SecurityException) {
-                    onError?.invoke("Wi-Fi 권한을 확인하세요 · 정확한 위치 권한이 필요합니다")
+                    reportError("Wi-Fi 권한을 확인하세요 · 정확한 위치 권한이 필요합니다")
                 }
             }
         }
         receiver = listener
         ContextCompat.registerReceiver(app, listener, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION), ContextCompat.RECEIVER_EXPORTED)
+        active = true
         job = scope.launch {
             while (isActive) {
                 try {
-                    if (!wifi.startScan()) onError?.invoke("Wi-Fi 갱신 대기 · Wi-Fi와 위치 설정을 확인하세요")
+                    if (!wifi.startScan()) reportError("Wi-Fi 갱신 대기 · Wi-Fi와 위치 설정을 확인하세요")
                 } catch (_: SecurityException) {
-                    onError?.invoke("Wi-Fi 탐색 권한이 없습니다")
+                    reportError("Wi-Fi 탐색 권한이 없습니다")
                     break
                 }
                 delay(periodMs)
@@ -76,9 +85,15 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
     }
 
     fun stop() {
+        active = false
         job?.cancel()
         job = null
         receiver?.let { app.unregisterReceiver(it) }
         receiver = null
+    }
+
+    private fun reportError(message: String) {
+        lastError = message
+        onError?.invoke(message)
     }
 }

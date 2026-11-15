@@ -9,6 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.classroom.rfdetector.core.AudioNameMatch
+import com.classroom.rfdetector.core.WearableKind
+import com.classroom.rfdetector.core.WearableNameMatch
 
 @Composable
 fun SectionIntro(eyebrow: String, title: String, description: String) {
@@ -21,9 +23,26 @@ fun SectionIntro(eyebrow: String, title: String, description: String) {
 
 @Composable
 fun AudioIdentityPanel(audio: AudioNameMatch?, model: String?, evidenceNote: String? = null) {
+    NameIdentityPanel(audio?.let { "${it.kind.label} · ${it.brand}" } ?: "모델 식별", model, evidenceNote)
+}
+
+@Composable
+fun WearableIdentityPanel(wearable: WearableNameMatch) {
+    NameIdentityPanel("${wearable.kind.label} · ${wearable.brand}", wearable.model,
+        "이름은 변경·모방할 수 있습니다. 이 후보만으로 카메라 탑재, AI 사용, 소유자 또는 부정행위 여부를 판단하지 않습니다.")
+}
+
+internal fun WearableKind.symbol(): RfSymbol = when (this) {
+    WearableKind.SMART_GLASSES -> RfSymbol.GLASSES
+    WearableKind.SMARTWATCH -> RfSymbol.WATCH
+    WearableKind.CAMERA -> RfSymbol.CAMERA
+}
+
+@Composable
+private fun NameIdentityPanel(title: String, model: String?, evidenceNote: String?) {
     Surface(color = RfColors.surfaceAlt, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(audio?.let { "${it.kind.label} · ${it.brand}" } ?: "모델 식별", style = MaterialTheme.typography.labelMedium, color = RfColors.primary)
+            Text(title, style = MaterialTheme.typography.labelMedium, color = RfColors.primary)
             Text("모델 후보: ${model ?: "확인 불가"}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = RfColors.textPrimary)
             Text(if (model != null) "광고 이름을 해석한 후보입니다. 세대·세부 모델은 이름에 명시된 범위만 표시합니다." else "이름이나 광고 데이터에 모델 정보가 없습니다. 제조사 코드만으로 모델을 추측하지 않습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
             evidenceNote?.let { Text(it, color = RfColors.warning, style = MaterialTheme.typography.bodySmall) }

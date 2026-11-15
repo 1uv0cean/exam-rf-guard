@@ -127,5 +127,23 @@ class WifiScannerTest {
         complete()
         assertEquals(listOf("new-room"), observations.map { it.key })
     }
+
+    @Test fun successfulEmptyCompletionClearsErrorButIsNotInventedDeviceReception() {
+        shadowOf(manager).setScanResults(emptyList())
+        scanner.start(onObs = { observations.add(it) })
+        assertTrue(scanner.active)
+        complete(false)
+        assertNotNull(scanner.lastError)
+        assertNull(scanner.lastUpdatedMs)
+        complete()
+        assertNull(scanner.lastError)
+        assertNotNull(scanner.lastUpdatedMs)
+        assertTrue(scanner.lastResults.isEmpty())
+        assertTrue(observations.isEmpty())
+        scanner.stop()
+        assertFalse(scanner.active)
+        scanner.start(onObs = { observations.add(it) })
+        assertNull(scanner.lastUpdatedMs)
+    }
 }
 

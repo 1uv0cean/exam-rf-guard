@@ -10,10 +10,15 @@ enum class SignalSort(val label: String) {
 val SnapshotSignal.audioNameMatch: AudioNameMatch?
     get() = if (source == ScanSource.BLE) AudioNameCatalog.match(name) ?: AudioNameCatalog.match(modelHint) else null
 
+val SnapshotSignal.wearableNameMatch: WearableNameMatch?
+    get() = if (source == ScanSource.BLE) WearableNameCatalog.match(name) ?: WearableNameCatalog.match(modelHint) else null
+
 fun SnapshotSignal.matchesQuery(query: String): Boolean {
     if (query.isBlank()) return true
     val audio = audioNameMatch
-    return fieldsMatchQuery(query, listOfNotNull(name, address, manufacturer, modelHint, audio?.model, audio?.searchModel, audio?.brand, source.name) +
+    val wearable = wearableNameMatch
+    return fieldsMatchQuery(query, listOfNotNull(name, address, manufacturer, modelHint, audio?.model, audio?.searchModel, audio?.brand, source.name,
+        wearable?.brand, wearable?.model, wearable?.kind?.label) + (wearable?.aliases ?: emptyList()) +
         (audio?.brandAliases ?: emptyList()) + manufacturerIds.map { "0x" + it.toString(16).padStart(4, '0') })
 }
 
