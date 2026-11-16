@@ -109,7 +109,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                         item {
                             GuardPanel {
                                 GuardHowTo("1", "빈 교실에서 2분 측정하고 기록 저장")
-                                GuardHowTo("2", "시험 중에는 이 화면을 켜 두기")
+                                GuardHowTo("2", "시험 중에는 이 화면을 켜 두기 · 전원 버튼을 누르거나 다른 앱으로 가면 감시가 멈춤")
                                 GuardHowTo("3", "새 전파가 뜨면 눌러서 다가가며 확인")
                             }
                         }
@@ -146,7 +146,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                             Text("측정하는 동안 잡힌 전파는 모두 원래 있던 것으로 기록됩니다. 감독관 본인의 시계와 이어폰은 지금 켜 두면 함께 기록되어 나중에 알리지 않습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    item { TextButton(onClick = { vm.stopScan() }) { Text("측정 취소") } }
+                    item { OutlinedButton(onClick = { vm.stopScan() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) { Text("초기화") } }
                 }
                 GuardPhase.WATCH, GuardPhase.ENDED -> {
                     val watching = phase == GuardPhase.WATCH
@@ -173,15 +173,16 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                                 if (watching) Text(when {
                                     found -> "빈 교실에 없던 전파가 지금 잡히고 있습니다. 줄을 눌러 다가가며 세기를 확인하세요. 사라지면 목록에서 빠집니다."
                                     incomplete -> "아래 문제를 해결하기 전까지는 전파가 있어도 표시되지 않을 수 있습니다."
-                                    else -> "지금 잡히는 전파는 모두 빈 교실 기록에 있던 것입니다. 화면을 켜 둔 채로 두세요."
+                                    else -> "지금 잡히는 전파는 모두 빈 교실 기록에 있던 것입니다."
                                 }, color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
                     if (watching) {
+                        item { Text("이 화면이 켜져 있는 동안에만 감시합니다. 화면은 자동으로 꺼지지 않으니 전원 버튼을 누르거나 다른 앱으로 가지 마세요. 충전기를 꽂아 두면 좋습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall) }
                         problemItems(problems)
                         session?.takeIf { it.pauses > 0 }?.let {
-                            item { GuardNotice("앱을 벗어나 있던 시간이 있습니다", "${it.pauses}회, 총 ${minSec((it.pausedMs / 1000).toInt())} 동안은 전파를 받지 못했습니다. 다른 앱을 쓰는 동안에는 감시가 멈추고, 돌아오면 자동으로 이어집니다.") }
+                            item { GuardNotice("앱을 벗어나 있던 시간이 있습니다", "${it.pauses}회, 총 ${minSec((it.pausedMs / 1000).toInt())} 동안은 전파를 받지 못했습니다. 화면을 끄거나 다른 앱을 쓰는 동안에는 감시가 멈추고, 돌아오면 자동으로 이어집니다.") }
                         }
                         item { GuardSectionTitle(RfSymbol.WIFI, "와이파이", if (watch.wifi.isEmpty()) "빈 교실에 없던 와이파이 없음" else "빈 교실에 없던 와이파이 ${watch.wifi.size}개") }
                         watch.wifi.forEach { group -> groupRows(group, openGroup == group.key, { toggle(group.key) }, onFind) }
@@ -309,6 +310,12 @@ fun GuideScreen() {
             GuardHowTo("1", "수험생이 들어오기 전, 빈 교실에서 2분 측정하고 기록을 저장합니다.")
             GuardHowTo("2", "시험 중에는 화면을 켜 둡니다. 빈 교실에 없던 전파가 잡히면 주황색으로 바뀌고 진동이 울립니다.")
             GuardHowTo("3", "줄을 눌러 걸어가며 막대가 늘어나는 쪽을 찾습니다.")
+        }
+        GuardPanel {
+            Text("시험 중에는 화면을 끄지 마세요", fontWeight = FontWeight.Bold)
+            Text("이 앱은 화면에 떠 있는 동안에만 전파를 받습니다. 측정과 감시 중에는 화면이 자동으로 꺼지지 않습니다.", style = MaterialTheme.typography.bodyMedium)
+            Text("· 전원 버튼을 누르지 않습니다.\n· 다른 앱으로 가거나 홈 화면으로 나가지 않습니다.\n· 전화나 알림으로 화면이 바뀌지 않게 방해 금지 모드를 켜 둡니다.\n· 화면을 계속 켜 두면 배터리가 빨리 닳으니 충전기를 연결하고 밝기를 낮춥니다.", style = MaterialTheme.typography.bodyMedium)
+            Text("화면이 꺼지거나 앱을 벗어난 동안의 전파는 기록되지 않습니다. 돌아오면 감시를 자동으로 이어 가고, 비어 있던 횟수와 시간을 감시 화면에 표시합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
         }
         GuardPanel {
             Text("제대로 잡히는지 확인하기", fontWeight = FontWeight.Bold)

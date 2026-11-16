@@ -96,7 +96,7 @@
 1. [v1.2.0-preview.1 릴리즈](https://github.com/junseokandylee/exam-rf-guard/releases/tag/v1.2.0-preview.1)를 엽니다.
 2. **Assets**에서 `rf-sweeper-v1.2.0-preview.1-debug.apk`를 내려받습니다.
 3. Android 휴대전화에서 APK를 열고 설치 안내를 따릅니다. 기기가 요구하면 해당 브라우저나 파일 앱에 대해서만 APK 설치 권한을 허용합니다. 조직에서 관리하는 기기는 설치 정책을 따라야 합니다.
-4. 설치 후 앱 목록에서 **RF 스위퍼**를 엽니다.
+4. 설치 후 앱 목록에서 **KoriyoSCAN**을 엽니다.
 
 [APK 직접 다운로드](https://github.com/junseokandylee/exam-rf-guard/releases/download/v1.2.0-preview.1/rf-sweeper-v1.2.0-preview.1-debug.apk) · [SHA-256 체크섬 파일](https://github.com/junseokandylee/exam-rf-guard/releases/download/v1.2.0-preview.1/SHA256SUMS.txt)
 
@@ -404,6 +404,8 @@ v1.2.0-preview.1에서는 JVM 단위 테스트와 Robolectric의 Android UI 실�
 - [이름 기반 제품 후보의 공식 제품명 출처](docs/DEVICE-NAME-SOURCES.md)
 - [Android BLE 기기 탐색](https://developer.android.com/develop/connectivity/bluetooth/ble/find-ble-devices)
 - [Android Wi-Fi 탐색과 제한](https://developer.android.com/develop/connectivity/wifi/wifi-scan)
+
+앱 아이콘의 캐릭터는 화성시 캐릭터 코리요입니다. 원저작자는 화성시이며 [공공누리 제1유형](https://www.kogl.or.kr/info/licenseType1.do)(출처표시) 조건으로 이용합니다. 아이콘의 3D 그림은 [KoriyoZIP](https://koriyozip.com/ko/)의 3D 스타일 재구성 이미지를 가공한 것으로 화성시의 공식 3D 원본이 아니며, 화성시나 KoriyoZIP이 이 앱을 제작·보증했다는 의미도 아닙니다.
 
 제품명과 회사명은 관측 결과를 설명하기 위해 사용합니다. 해당 제조사가 이 앱을 인증하거나 보증했다는 의미는 아닙니다.
 
