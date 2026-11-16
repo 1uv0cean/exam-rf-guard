@@ -60,13 +60,16 @@ fun App() {
     }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) allGranted = hasPermissions()
+            if (event == Lifecycle.Event.ON_RESUME) { allGranted = hasPermissions(); vm.checkExamMode() }
             if (event == Lifecycle.Event.ON_START) vm.resumeFromBackground()
             if (event == Lifecycle.Event.ON_STOP) vm.pauseForBackground()
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
+    // 알림창을 내려 비행기 모드를 바꾸면 화면이 다시 시작되지 않으므로, 창이 다시 앞에 올 때도 확인한다.
+    val focused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(focused) { vm.checkExamMode() }
     val scanning by vm.scanning.collectAsState()
     val simMode by vm.simMode.collectAsState()
     val baselineSet by vm.baselineSet.collectAsState()

@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -57,6 +58,8 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
     val tick by vm.healthTick.collectAsState()
     val watch by vm.watch.collectAsState()
     val problems by vm.problems.collectAsState()
+    val silenceMissing by vm.silenceMissing.collectAsState()
+    val airplaneOff by vm.airplaneOff.collectAsState()
     var openGroup by remember { mutableStateOf<String?>(null) }
     var farOpen by rememberSaveable { mutableStateOf(false) }
     var findMyOpen by rememberSaveable { mutableStateOf(false) }
@@ -73,6 +76,8 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
     val elapsed = session?.let { ((maxOf(tick, it.startedAtMs) - it.startedAtMs) / 1000).toInt() } ?: 0
     // 빈 교실 기록은 2분 이상, 와이파이 탐색이 두 번 끝난 뒤에 저장한다. 와이파이를 못 쓰는 경우 3분 뒤에는 막지 않는다.
     val collected = simulation || elapsed >= COLLECT_SECONDS + 60 || (elapsed >= COLLECT_SECONDS && vm.wifi.completedScans >= 2)
+    // 비행기 모드와 방해 금지 권한이 모두 갖춰져야 측정과 감시를 시작할 수 있다.
+    val blocked = !simulation && (airplaneOff || silenceMissing)
     val toggle: (String) -> Unit = { key -> openGroup = if (openGroup == key) null else key }
 
     Column(Modifier.fillMaxSize()) {
@@ -80,6 +85,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (phase) {
                 GuardPhase.READY -> {
+                    examModeItems(airplaneOff && !simulation, silenceMissing && !simulation)
                     if (permissionMissing && !simulation) {
                         item {
                             GuardPanel {
@@ -115,7 +121,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                         }
                         saved?.let { record ->
                             item {
-                                OutlinedButton(onClick = { vm.useSavedBaseline(); onStart() }, modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = { vm.useSavedBaseline(); onStart() }, enabled = !blocked, modifier = Modifier.fillMaxWidth()) {
                                     Text("${clock(record.capturedAtMs)}에 저장한 기록으로 바로 감시\n${record.area}")
                                 }
                             }
@@ -140,6 +146,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                         }
                     }
                     problemItems(problems)
+                    examModeItems(airplaneOff && !simulation, silenceMissing && !simulation)
                     item {
                         GuardPanel {
                             Text("지금 수험생이 있으면 안 됩니다", fontWeight = FontWeight.SemiBold)
@@ -178,8 +185,9 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                             }
                         }
                     }
+                    examModeItems(airplaneOff && !simulation, silenceMissing && !simulation)
                     if (watching) {
-                        item { Text("이 화면이 켜져 있는 동안에만 감시합니다. 화면은 자동으로 꺼지지 않으니 전원 버튼을 누르거나 다른 앱으로 가지 마세요. 충전기를 꽂아 두면 좋습니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall) }
+                        item { Text("이 화면이 켜져 있는 동안에만 감시합니다. 화면은 자동으로 꺼지지 않으니 전원 버튼을 누르거나 다른 앱으로 가지 마세요. 충전기를 꽂아 두면 좋습니다.${if (silenceMissing || simulation) "" else " 감시 중에는 전화·알림·알람이 울리지 않게 휴대폰을 무음으로 바꿔 둡니다."}", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall) }
                         problemItems(problems)
                         session?.takeIf { it.pauses > 0 }?.let {
                             item { GuardNotice("앱을 벗어나 있던 시간이 있습니다", "${it.pauses}회, 총 ${minSec((it.pausedMs / 1000).toInt())} 동안은 전파를 받지 못했습니다. 화면을 끄거나 다른 앱을 쓰는 동안에는 감시가 멈추고, 돌아오면 자동으로 이어집니다.") }
@@ -210,7 +218,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                 Text(if (phase == GuardPhase.WATCH || phase == GuardPhase.ENDED) "이 앱은 와이파이와 저전력 블루투스(BLE) 신호만 봅니다. 아무것도 잡히지 않아도 부정행위가 없다는 뜻은 아닙니다. LTE만 쓰는 기기는 보이지 않습니다."
                     else "블루투스, 와이파이, 위치가 켜져 있어야 합니다. 위치는 와이파이를 찾는 데만 씁니다.", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
                 when (phase) {
-                    GuardPhase.READY -> MainButton(if (permissionMissing && !simulation) "권한 허용하고 시작" else "빈 교실 측정 시작", onClick = onStart)
+                    GuardPhase.READY -> MainButton(if (blocked) "비행기 모드와 무음 권한이 필요합니다" else if (permissionMissing && !simulation) "권한 허용하고 시작" else "빈 교실 측정 시작", enabled = !blocked, onClick = onStart)
                     GuardPhase.COLLECT -> MainButton(if (collected || elapsed >= COLLECT_SECONDS) "빈 교실 기록 저장" else "빈 교실 기록 저장 · ${minSec(COLLECT_SECONDS - elapsed)} 뒤",
                         enabled = devices.isNotEmpty() && !busy && collected) { vm.takeBaseline() }
                     GuardPhase.WATCH -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -219,7 +227,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                             colors = ButtonDefaults.buttonColors(containerColor = RfColors.surfaceAlt, contentColor = RfColors.textPrimary)) { Text("감시 끝내기", fontWeight = FontWeight.Bold) }
                     }
                     GuardPhase.ENDED -> {
-                        MainButton("같은 빈 교실 기록으로 다시 감시", onClick = onStart)
+                        MainButton(if (blocked) "비행기 모드와 무음 권한이 필요합니다" else "같은 빈 교실 기록으로 다시 감시", enabled = !blocked, onClick = onStart)
                         OutlinedButton(onClick = { vm.resetBaseline() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) { Text("빈 교실부터 다시 측정") }
                     }
                 }
@@ -229,7 +237,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
 
     if (confirmRestart) AlertDialog(onDismissRequest = { confirmRestart = false }, title = { Text("빈 교실부터 다시 측정할까요?") },
         text = { Text("지금의 빈 교실 기록과 목록을 비우고 2분 측정부터 다시 합니다.\n\n수험생이 있는 상태에서 다시 측정하면 수험생의 기기가 원래 있던 전파로 기록되어, 이후에는 알리지 않습니다.") },
-        confirmButton = { TextButton(onClick = { confirmRestart = false; vm.restartFromEmptyRoom() }) { Text("다시 측정") } },
+        confirmButton = { TextButton(onClick = { confirmRestart = false; if (blocked) { vm.stopScan(); vm.resetBaseline() } else vm.restartFromEmptyRoom() }) { Text("다시 측정") } },
         dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("취소") } })
     if (confirmStop) AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("감시를 끝낼까요?") },
         text = { Text("끝내면 전파를 더 받지 않습니다. 빈 교실 기록은 남아 있어 같은 기록으로 다시 감시할 수 있습니다.") },
@@ -314,7 +322,8 @@ fun GuideScreen() {
         GuardPanel {
             Text("시험 중에는 화면을 끄지 마세요", fontWeight = FontWeight.Bold)
             Text("이 앱은 화면에 떠 있는 동안에만 전파를 받습니다. 측정과 감시 중에는 화면이 자동으로 꺼지지 않습니다.", style = MaterialTheme.typography.bodyMedium)
-            Text("· 전원 버튼을 누르지 않습니다.\n· 다른 앱으로 가거나 홈 화면으로 나가지 않습니다.\n· 전화나 알림으로 화면이 바뀌지 않게 방해 금지 모드를 켜 둡니다.\n· 화면을 계속 켜 두면 배터리가 빨리 닳으니 충전기를 연결하고 밝기를 낮춥니다.", style = MaterialTheme.typography.bodyMedium)
+            Text("· 전원 버튼을 누르지 않습니다.\n· 다른 앱으로 가거나 홈 화면으로 나가지 않습니다.\n· 전화가 와서 화면이 바뀌지 않게 비행기 모드를 켜고, 블루투스와 와이파이만 다시 켭니다.\n· 화면을 계속 켜 두면 배터리가 빨리 닳으니 충전기를 연결하고 밝기를 낮춥니다.", style = MaterialTheme.typography.bodyMedium)
+            Text("측정과 감시 중에는 전화·알림·알람이 울리지 않게 앱이 휴대폰을 무음(방해 금지)으로 바꾸고, 끝내면 원래대로 돌립니다. 비행기 모드가 꺼져 있거나 방해 금지 권한이 없으면 측정을 시작할 수 없습니다. 새 전파를 알리는 이 앱의 진동은 그대로 울립니다.", style = MaterialTheme.typography.bodyMedium)
             Text("화면이 꺼지거나 앱을 벗어난 동안의 전파는 기록되지 않습니다. 돌아오면 감시를 자동으로 이어 가고, 비어 있던 횟수와 시간을 감시 화면에 표시합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
         }
         GuardPanel {
@@ -530,6 +539,24 @@ private fun GuardNotice(title: String, body: String, action: (@Composable () -> 
             Text(body, color = RfColors.warning, style = MaterialTheme.typography.bodyMedium)
             action?.invoke()
         }
+    }
+}
+
+private fun LazyListScope.examModeItems(airplaneOff: Boolean, silenceMissing: Boolean) {
+    if (airplaneOff) item(key = "exam-airplane") {
+        val context = LocalContext.current
+        GuardNotice("비행기 모드가 꺼져 있습니다", "전화나 문자가 오면 감시 화면이 가려지고 감시가 멈춥니다. 비행기 모드를 켠 뒤 와이파이와 블루투스만 다시 켜 주세요. 꺼져 있으면 측정을 시작할 수 없습니다.") {
+            TextButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS)) }) { Text("비행기 모드 설정 열기") }
+        }
+    }
+    if (silenceMissing) item(key = "exam-silence") { SilenceNotice() }
+}
+
+@Composable
+private fun SilenceNotice() {
+    val context = LocalContext.current
+    GuardNotice("휴대폰을 무음으로 바꿀 권한이 없습니다", "허용하면 측정과 감시 중에 전화·알림·알람이 울리지 않게 자동으로 무음으로 바꾸고, 끝내면 원래대로 돌립니다. 허용하기 전에는 측정을 시작할 수 없습니다.") {
+        TextButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }) { Text("방해 금지 권한 설정 열기") }
     }
 }
 

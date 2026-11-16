@@ -13,6 +13,7 @@ import com.classroom.rfdetector.core.RfObservation
 import com.classroom.rfdetector.core.ScanSession
 import com.classroom.rfdetector.core.SignalPresence
 import com.classroom.rfdetector.core.SignalSnapshot
+import com.classroom.rfdetector.core.SilentMode
 import com.classroom.rfdetector.core.SnapshotStore
 import com.classroom.rfdetector.core.TrackedDevice
 import com.classroom.rfdetector.core.WatchView
@@ -91,6 +92,11 @@ class AppViewModel(private val app: Context) : ViewModel() {
     val alertVibration = MutableStateFlow(true)
     private val alerted = mutableSetOf<String>()
     private var pausedAtMs: Long? = null
+    private val silent = SilentMode(app)
+    /** 방해 금지 권한이 없어 휴대폰을 자동으로 무음으로 바꾸지 못하는 상태. */
+    val silenceMissing = MutableStateFlow(!silent.allowed())
+    /** 비행기 모드가 꺼져 있어 전화·문자가 들어올 수 있는 상태. 앱이 직접 켤 수는 없다. */
+    val airplaneOff = MutableStateFlow(airplaneModeOff())
 
     private var simJob: Job? = null
     private var refreshJob: Job? = null
@@ -139,7 +145,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
     /** 앱이 화면 밖으로 나가면 수신을 멈추되, 돌아오면 같은 감시를 이어 간다. */
     fun pauseForBackground() {
         if (!scanning.value) return
-        stopScan()
+        stopScan(keepSilent = true)
         pausedAtMs = System.currentTimeMillis()
     }
 
@@ -164,6 +170,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
         }
         applyBaseline()
         scanning.value = true
+        checkExamMode()
         if (simMode.value) {
             if (paused == null) sim.reset()
             simJob = scope.launch {
@@ -188,7 +195,18 @@ class AppViewModel(private val app: Context) : ViewModel() {
         if (scanning.value) tracker.update(obs)
     }
 
-    fun stopScan() {
+    private fun airplaneModeOff() = android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) == 0
+
+    /** 비행기 모드와 방해 금지 권한을 다시 확인한다. 권한을 방금 허용했다면 바로 무음으로 바꾼다. 가상 전파로 도는 자동 테스트에서는 휴대폰 설정을 건드리지 않는다. */
+    fun checkExamMode() {
+        silenceMissing.value = !silent.allowed()
+        airplaneOff.value = airplaneModeOff()
+        if (scanning.value && !simMode.value) silent.on()
+    }
+
+    /** keepSilent: 앱을 잠시 벗어난 동안에도 시험 중이므로 무음을 유지한다. */
+    fun stopScan(keepSilent: Boolean = false) {
+        if (!keepSilent) silent.off()
         if (!scanning.value) return
         refresh()
         scanning.value = false
@@ -302,6 +320,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
         if (now - problemsCheckedAtMs >= 1_000) {
             problemsCheckedAtMs = now
             problems.value = radioProblems()
+            checkExamMode()
             // 감시 도중에 블루투스를 켠 경우 바로 받기 시작한다. 오류로 멈춘 탐색은 자동으로 되풀이하지 않는다.
             if (scanning.value && !simMode.value && !ble.active && ble.lastError == null && ble.isUsable()) ble.start(::onObservation)
         }
