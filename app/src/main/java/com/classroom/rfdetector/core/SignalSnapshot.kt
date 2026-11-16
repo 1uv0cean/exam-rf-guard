@@ -15,6 +15,7 @@ data class SnapshotSignal(
     val manufacturerIds: Set<Int> = emptySet(),
     val periods: List<ObservationPeriod> = emptyList(),
     val referenceRssiAt1m: Double? = null,
+    val hints: Set<SignalHint> = emptySet(),
 ) {
     val matchKey: String get() = radioKey(source, address)
     val reappearanceCount: Int get() = (periods.size - 1).coerceAtLeast(0)
@@ -37,7 +38,7 @@ data class SignalSnapshot(
             }.map { device ->
                     SnapshotSignal(device.key, device.source, device.displayName, device.rssiEma, device.firstSeenMs, device.lastSeenMs,
                         device.observationCount, device.identity.summary, device.identity.modelHint, device.presence, device.manufacturerIds.toSet(),
-                        device.periods.toList(), device.referenceRssiAt1m)
+                        device.periods.toList(), device.referenceRssiAt1m, device.hints.toSet())
             }
             return SignalSnapshot(id, area.trim(), label.trim(), capturedAtMs, scanStartedAtMs, simulation, signals)
         }

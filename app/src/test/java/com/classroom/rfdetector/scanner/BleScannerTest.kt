@@ -50,6 +50,33 @@ class BleScannerTest {
         assertTrue(shadowOf(adapter.bluetoothLeScanner).scanCallbacks.isEmpty())
     }
 
+    @Test fun advertisementKindHintsAreReadAndLongScanIsRestartedWithTheSameCallback() {
+        val context = RuntimeEnvironment.getApplication()
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        shadowOf(adapter).setEnabled(true)
+        val scanner = BleScanner(context)
+        val observations = mutableListOf<RfObservation>()
+        assertTrue(scanner.start { observations.add(it) })
+        val callback = shadowOf(adapter.bluetoothLeScanner).scanCallbacks.single()
+        val bytes = byteArrayOf(2, 1, 6, 3, 0x19, 0xC1.toByte(), 0, 7, -1, 76, 0, 0x10, 2, 1, 0x18)
+        val record = ReflectionHelpers.callStaticMethod<ScanRecord>(ScanRecord::class.java, "parseFromBytes", ClassParameter.from(ByteArray::class.java, bytes))
+        callback.onScanResult(1, ScanResult(adapter.getRemoteDevice("00:11:22:33:44:55"), record, -59, SystemClock.elapsedRealtimeNanos()))
+        assertEquals(setOf(com.classroom.rfdetector.core.SignalHint.WATCH, com.classroom.rfdetector.core.SignalHint.APPLE_ACTIVE), observations.single().hints)
+
+        // 실제 기기는 5분 뒤 탐색을 낮춘다. 그 전에 다시 걸리는지, 신호가 끊긴 채로도 계속 살아 있는지 본다.
+        val scans = shadowOf(adapter.bluetoothLeScanner)
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofSeconds(20))
+        assertSame(callback, scans.scanCallbacks.single())
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMinutes(26))
+        assertTrue(scanner.active)
+        assertSame(callback, shadowOf(adapter.bluetoothLeScanner).scanCallbacks.single())
+        callback.onScanResult(1, ScanResult(adapter.getRemoteDevice("00:11:22:33:44:55"), null, -59, SystemClock.elapsedRealtimeNanos()))
+        assertEquals(2, observations.size)
+        scanner.stop()
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMinutes(26))
+        assertTrue(shadowOf(adapter.bluetoothLeScanner).scanCallbacks.isEmpty())
+    }
+
     @Test fun batchResultsKeepCaptureTimeAndStoppedCallbacksAreIgnored() {
         val context = RuntimeEnvironment.getApplication()
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter

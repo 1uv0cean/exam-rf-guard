@@ -50,6 +50,7 @@ class SnapshotStore(private val directory: File) {
                 put("presence", signal.presence.name)
                 put("manufacturerIds", JSONArray(signal.manufacturerIds.sorted()))
                 put("referenceRssiAt1m", signal.referenceRssiAt1m ?: JSONObject.NULL)
+                put("hints", JSONArray(signal.hints.map { it.name }))
                 put("periods", JSONArray().apply { signal.periods.forEach { period ->
                     put(JSONObject().put("first", period.firstSeenMs).put("last", period.lastSeenMs).put("count", period.count))
                 } })
@@ -69,7 +70,11 @@ class SnapshotStore(private val directory: File) {
                     val period = periods.getJSONObject(index)
                     ObservationPeriod(period.getLong("first"), period.getLong("last"), period.getInt("count"))
                 } } ?: emptyList(),
-                if (row.isNull("referenceRssiAt1m")) null else row.getDouble("referenceRssiAt1m"))
+                if (row.isNull("referenceRssiAt1m")) null else row.getDouble("referenceRssiAt1m"),
+                // 이 버전이 모르는 단서 이름은 버린다.
+                row.optJSONArray("hints")?.let { names -> (0 until names.length()).mapNotNull { index ->
+                    SignalHint.entries.firstOrNull { it.name == names.getString(index) }
+                }.toSet() } ?: emptySet())
         } }
         return SignalSnapshot(json.getString("id"), json.getString("area"), json.getString("label"), json.getLong("capturedAtMs"),
             json.getLong("scanStartedAtMs"), json.getBoolean("simulation"), signals)

@@ -4,27 +4,30 @@ import android.content.Context
 import android.location.LocationManager
 import android.os.Build
 import androidx.core.location.LocationManagerCompat
-import com.classroom.rfdetector.core.DistanceClass
+import androidx.lifecycle.ViewModel
 import com.classroom.rfdetector.core.DeviceIdentityResolver
-import com.classroom.rfdetector.core.LocalizationEngine
-import com.classroom.rfdetector.core.GeigerController
-import com.classroom.rfdetector.core.MotionSensor
 import com.classroom.rfdetector.core.DeviceTracker
+import com.classroom.rfdetector.core.DistanceClass
+import com.classroom.rfdetector.core.GeigerController
 import com.classroom.rfdetector.core.RfObservation
-import com.classroom.rfdetector.core.RssiFilter
-import com.classroom.rfdetector.core.TrackedDevice
+import com.classroom.rfdetector.core.ScanSession
 import com.classroom.rfdetector.core.SignalPresence
 import com.classroom.rfdetector.core.SignalSnapshot
 import com.classroom.rfdetector.core.SnapshotStore
-import com.classroom.rfdetector.core.ObservationUpdate
-import com.classroom.rfdetector.core.ScanSession
+import com.classroom.rfdetector.core.TrackedDevice
+import com.classroom.rfdetector.core.WatchView
+import com.classroom.rfdetector.core.baselineGroupCounts
+import com.classroom.rfdetector.core.baselineWifiAddresses
+import com.classroom.rfdetector.core.watchView
 import com.classroom.rfdetector.scanner.BleScanner
 import com.classroom.rfdetector.scanner.WifiScanner
 import com.classroom.rfdetector.sim.RadioSimulator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,111 +35,84 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CancellationException
-import com.classroom.rfdetector.core.CheckpointStore
-import java.io.File
-import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
-/** Retains scan and comparison state across activity recreation; reception stops off-screen. */
+/** 감시가 완전하지 않은 이유. 해결 전까지는 해당 전파가 있어도 표시되지 않는다. */
+enum class RadioProblem { BLUETOOTH_OFF, WIFI_OFF, LOCATION_OFF }
+
+/** 빈 교실 기록 → 시험 중 감시의 상태를 화면 재생성과 무관하게 유지한다. 화면 밖에서는 수신을 멈춘다. */
 class AppViewModel(private val app: Context) : ViewModel() {
     companion object {
         private val archiveDispatcher = Executors.newSingleThreadExecutor { task -> Thread(task, "rf-archive").apply { isDaemon = true } }.asCoroutineDispatcher()
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    // Disk writes finish after the activity stops; scanning remains foreground-only.
     private val storageScope = CoroutineScope(SupervisorJob() + archiveDispatcher)
     private var closed = false
 
     val tracker = DeviceTracker()
-    val engine = LocalizationEngine()
-    val motion = MotionSensor(app)
     val geiger = GeigerController(app)
     val ble = BleScanner(app)
     val wifi = WifiScanner(app, scope)
+    /** 가상 전파. 화면에서는 켤 수 없고 자동 테스트에서만 쓴다. */
     val sim = RadioSimulator()
+    /** 회사 코드·주소 앞자리로 제조사를 찾는 등록부. 앱에 들어 있어 인터넷 없이 조회한다. */
+    private var identityResolver = DeviceIdentityResolver(emptyMap(), emptyMap())
 
     private val _devices = MutableStateFlow<List<TrackedDevice>>(emptyList())
     val devices: StateFlow<List<TrackedDevice>> = _devices
-
     val scanning = MutableStateFlow(false)
     val simMode = MutableStateFlow(false)
     val geigerOn = MutableStateFlow(false)
-    val baselineSet = MutableStateFlow(false)
-    val newCount = MutableStateFlow(0)
-    val headingDeg = MutableStateFlow(0.0)
-    val statusMsg = MutableStateFlow<String?>(null)
-    val wifiStats = MutableStateFlow<List<ApRow>>(emptyList())
-    val savedSnapshots = MutableStateFlow<List<SignalSnapshot>>(emptyList())
-    val baselineSnapshot = MutableStateFlow<SignalSnapshot?>(null)
-    val comparisonSnapshot = MutableStateFlow<SignalSnapshot?>(null)
-    val snapshotBusy = MutableStateFlow(true)
-    val snapshotError = MutableStateFlow<String?>(null)
-    val latestNewSignal = MutableStateFlow<String?>(null)
     val areaDraft = MutableStateFlow("시험실")
     val scanSession = MutableStateFlow<ScanSession?>(null)
-    private val snapshotStore = SnapshotStore(app.filesDir)
-    private var snapshotStorageReady = false
-    val checkpoints = MutableStateFlow<List<SignalSnapshot>>(emptyList())
-    val checkpointError = MutableStateFlow<String?>(null)
-    val checkpointBusy = MutableStateFlow(false)
-    private val checkpointStore = CheckpointStore(File(app.filesDir, "checkpoints").apply { mkdirs() })
-    private val pendingCheckpoints = AtomicInteger(0)
-    private var checkpointJob: Job? = null
     val healthTick = MutableStateFlow(0L)
 
-    data class ApRow(
-        val ssid: String?,
-        val bssid: String,
-        val rssi: Int,
-        val freq: Int,
-        val hidden: Boolean,
-    )
+    /** 지금 감시에 쓰는 빈 교실 기록. null이면 아직 측정 전이다. */
+    val baselineSnapshot = MutableStateFlow<SignalSnapshot?>(null)
+    val baselineSet = MutableStateFlow(false)
+    /** 앱을 다시 열었을 때 이어 쓸 수 있는, 마지막으로 저장한 빈 교실 기록. */
+    val savedBaseline = MutableStateFlow<SignalSnapshot?>(null)
+    val snapshotBusy = MutableStateFlow(true)
+    val snapshotError = MutableStateFlow<String?>(null)
+    private val snapshotStore = SnapshotStore(app.filesDir)
+    private var baselineGroups: Map<String, Int> = emptyMap()
+    private var baselineWifi: Set<String> = emptySet()
+    private var baselineSamples: List<com.classroom.rfdetector.core.SnapshotSignal> = emptyList()
+
+    /** 빈 교실 기록과 비교해 지금 잡히는 전파를 묶음으로 나눈 결과. */
+    val watch = MutableStateFlow(WatchView())
+    val problems = MutableStateFlow<List<RadioProblem>>(emptyList())
+    private var problemsCheckedAtMs = 0L
+    /** 위치 찾기 대상(trackingKey). 지정하면 근접 진동이 이 기기를 따른다. */
+    val findTarget = MutableStateFlow<String?>(null)
+    /** 감독관이 "확인함"으로 표시한 묶음(groupKey). 이번 감시 동안만 유지한다. */
+    val acknowledged = MutableStateFlow<Set<String>>(emptySet())
+    /** 새 전파가 처음 잡히면 진동으로 한 번 알린다. */
+    val alertVibration = MutableStateFlow(true)
+    private val alerted = mutableSetOf<String>()
+    private var pausedAtMs: Long? = null
 
     private var simJob: Job? = null
     private var refreshJob: Job? = null
-    private var identityResolver = DeviceIdentityResolver(emptyMap(), emptyMap())
 
     init {
         scope.launch {
-            try {
-                val loaded = withContext(archiveDispatcher) { checkpointStore.load() }
-                checkpoints.value = (loaded + checkpoints.value).groupBy { it.id }.values
-                    .map { copies -> copies.maxBy { it.capturedAtMs } }.sortedByDescending { it.capturedAtMs }
-            } catch (_: Exception) { checkpointError.value = "자동 보존 기록을 불러오지 못했습니다. 기존 파일을 유지합니다." }
+            identityResolver = withContext(Dispatchers.IO) {
+                fun rows(file: String) = app.assets.open(file).bufferedReader().useLines { lines ->
+                    lines.filter { it.contains('	') }.associate { line -> line.substringBefore('	') to line.substringAfter('	') }
+                }
+                DeviceIdentityResolver(rows("mac-vendors.tsv"), rows("bluetooth-companies.tsv").mapKeys { it.key.toInt() })
+            }
         }
         scope.launch {
             try {
-                savedSnapshots.value = withContext(archiveDispatcher) { snapshotStore.load() }
-                snapshotStorageReady = true
+                savedBaseline.value = withContext(archiveDispatcher) { snapshotStore.load() }.filter { !it.simulation }.maxByOrNull { it.capturedAtMs }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                snapshotError.value = "저장 자료를 불러오지 못했습니다. 기존 파일은 변경하지 않습니다."
+                snapshotError.value = "저장된 빈 교실 기록을 읽지 못했습니다. 새로 측정해 주세요."
             } finally { snapshotBusy.value = false }
         }
-        scope.launch {
-            identityResolver = withContext(Dispatchers.IO) {
-                fun assetRows(file: String) = app.assets.open(file).bufferedReader().useLines { lines ->
-                    lines.filter { it.contains('\t') }.associate { line -> line.substringBefore('\t') to line.substringAfter('\t') }
-                }
-                DeviceIdentityResolver(assetRows("mac-vendors.tsv"), assetRows("bluetooth-companies.tsv").mapKeys { it.key.toInt() })
-            }
-        }
-        if (!ble.hasHardware()) {
-            simMode.value = true
-            statusMsg.value = "이 기기에는 블루투스가 없어 시뮬레이션 모드로 시작합니다"
-        }
-        motion.onStep = {
-            if (!simMode.value && scanning.value) engine.moveAll(0.0, motion.stepLengthM)
-        }
-        motion.onHeadingDelta = { d ->
-            if (!simMode.value && scanning.value) engine.rotateAll(d)
-        }
-        wifi.onError = { msg -> statusMsg.value = msg }
-        ble.onError = { msg -> statusMsg.value = msg }
     }
 
     /** API 레벨별로 런타임 요청이 필요한 권한 목록 */
@@ -158,193 +134,152 @@ class AppViewModel(private val app: Context) : ViewModel() {
         return !LocationManagerCompat.isLocationEnabled(lm)
     }
 
-    fun startScan() {
+    fun startScan() = begin(resumedPauseAtMs = null)
+
+    /** 앱이 화면 밖으로 나가면 수신을 멈추되, 돌아오면 같은 감시를 이어 간다. */
+    fun pauseForBackground() {
+        if (!scanning.value) return
+        stopScan()
+        pausedAtMs = System.currentTimeMillis()
+    }
+
+    fun resumeFromBackground() {
+        begin(pausedAtMs ?: return)
+    }
+
+    private fun begin(resumedPauseAtMs: Long?) {
         if (scanning.value || closed) return
-        tracker.clear()
-        engine.clear()
-        geiger.setClass(DistanceClass.UNKNOWN)
-        _devices.value = emptyList()
-        wifiStats.value = emptyList()
-        newCount.value = 0
-        statusMsg.value = null
-        scanSession.value = ScanSession(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), areaDraft.value.trim().ifBlank { "시험실" })
-        applyBaselineToSession()
-        latestNewSignal.value = null
+        pausedAtMs = null
+        val paused = scanSession.value?.takeIf { resumedPauseAtMs != null }
+        if (paused != null) {
+            scanSession.value = paused.copy(pauses = paused.pauses + 1,
+                pausedMs = paused.pausedMs + (System.currentTimeMillis() - resumedPauseAtMs!!).coerceAtLeast(0))
+        } else {
+            acknowledged.value = emptySet()
+            alerted.clear()
+            tracker.clear()
+            _devices.value = emptyList()
+            watch.value = WatchView()
+            scanSession.value = ScanSession(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), areaDraft.value.trim().ifBlank { "시험실" })
+        }
+        applyBaseline()
         scanning.value = true
         if (simMode.value) {
-            sim.reset()
+            if (paused == null) sim.reset()
             simJob = scope.launch {
                 while (isActive) {
                     sim.tick().forEach { onObservation(it) }
                     delay(250)
                 }
             }
-            statusMsg.value = "시뮬레이션 모드: 가상 기기 5대 배치 — 조이스틱으로 걸어보세요"
         } else {
-            if (!ble.isUsable()) {
-                statusMsg.value = "블루투스 꺼짐/없음 — BLE 스캔 생략"
-            } else if (!ble.start(::onObservation)) {
-                statusMsg.value = "BLE 스캔 시작 실패(권한 확인)"
-            }
-            if (locationServicesOff()) {
-                statusMsg.value = "위치 서비스가 꺼져 있어 Wi-Fi 결과가 안 보일 수 있음"
-            }
+            if (ble.isUsable()) ble.start(::onObservation)
             wifi.start(::onObservation)
         }
-        motion.start()
         refreshJob = scope.launch {
             while (isActive) {
                 refresh()
                 delay(100)
             }
         }
-        checkpointJob = scope.launch {
-            while (isActive) {
-                delay(5_000)
-                preserveSession()
-            }
-        }
     }
 
     private fun onObservation(obs: RfObservation) {
-        if (!scanning.value) return
-        val update = tracker.update(obs)
-        if ((update == ObservationUpdate.FIRST_SEEN || update == ObservationUpdate.REAPPEARED) && baselineSet.value) {
-            if (obs.trackingKey !in (tracker.baselineKeys ?: emptySet())) latestNewSignal.value = (obs.name ?: obs.key) + if (update == ObservationUpdate.REAPPEARED) " · 재등장" else ""
-        }
-        if (update != ObservationUpdate.LATE) obs.rssi?.let { r ->
-            val tx = obs.txPower?.toDouble() ?: RssiFilter.DEFAULT_TX_DBM
-            engine.deviceFilter(obs.trackingKey).observeRssi(r.toDouble(), tx)
-        }
+        if (scanning.value) tracker.update(obs)
     }
 
     fun stopScan() {
         if (!scanning.value) return
         refresh()
-        preserveSession()
         scanning.value = false
-        checkpointJob?.cancel(); checkpointJob = null
         simJob?.cancel(); simJob = null
         refreshJob?.cancel(); refreshJob = null
         ble.stop()
         wifi.stop()
-        motion.stop()
         if (geigerOn.value) setGeiger(false)
     }
 
+    fun updateAreaDraft(value: String) { areaDraft.value = value.take(80) }
+
+    private fun applyBaseline() {
+        val baseline = baselineSnapshot.value?.takeIf { scanSession.value != null && it.simulation == simMode.value }
+        baselineSet.value = baseline != null
+        baselineGroups = baseline?.let(::baselineGroupCounts) ?: emptyMap()
+        baselineWifi = baseline?.let(::baselineWifiAddresses) ?: emptySet()
+        baselineSamples = baseline?.let { com.classroom.rfdetector.core.baselineSamples(it) } ?: emptyList()
+    }
+
+    /** 지금까지 잡힌 전파 전부를 이 교실에 원래 있던 것으로 저장하고 감시를 시작한다. */
     fun takeBaseline() {
-        if (!scanning.value || devices.value.isEmpty()) return
-        saveSnapshot(scanSession.value?.area ?: areaDraft.value, "기준점", asBaseline = true)
-    }
-
-    fun updateAreaDraft(value: String) {
-        areaDraft.value = value.take(80)
         val session = scanSession.value ?: return
-        if (!scanning.value || session.areaLocked || value.isBlank()) return
-        scanSession.value = session.copy(area = areaDraft.value.trim())
-        applyBaselineToSession()
-        latestNewSignal.value = null
+        if (!scanning.value || snapshotBusy.value || devices.value.isEmpty()) return
         refresh()
-    }
-
-    private fun applyBaselineToSession() {
-        val baseline = baselineSnapshot.value
-        val session = scanSession.value
-        val matches = baseline != null && session != null && baseline.simulation == simMode.value && baseline.area.equals(session.area, true)
-        baselineSet.value = matches
-        if (matches) tracker.setBaseline(baseline!!.signals.map { it.matchKey }.toSet()) else tracker.clearBaseline()
-    }
-
-    fun saveSnapshot(area: String, label: String, asBaseline: Boolean = false) {
-        if (!scanning.value || snapshotBusy.value || !snapshotStorageReady) return
-        if (area.isBlank() || label.isBlank()) { snapshotError.value = "공간 이름과 시점 이름을 입력해 주세요."; return }
-        val current = scanSession.value ?: return
-        val requestedArea = area.trim().take(80)
-        if (current.areaLocked && !current.area.equals(requestedArea, true)) {
-            snapshotError.value = "현재 탐색 공간은 ${current.area}입니다. 다른 공간을 기록하려면 탐색을 중지하고 새로 시작하세요."
-            return
-        }
-        val session = current.copy(area = requestedArea, areaLocked = true)
-        scanSession.value = session
-        areaDraft.value = requestedArea
-        applyBaselineToSession()
-        refresh()
-        val snapshot = SignalSnapshot.capture(java.util.UUID.randomUUID().toString(), area.trim().take(80), label.trim().take(80),
-            System.currentTimeMillis(), session.startedAtMs, simMode.value, devices.value,
-            includeNewHistorySinceMs = if (asBaseline || !baselineSet.value) null else baselineSnapshot.value?.capturedAtMs,
-            includeAllHistory = asBaseline)
-        val updated = listOf(snapshot) + savedSnapshots.value
+        val snapshot = SignalSnapshot.capture(java.util.UUID.randomUUID().toString(), session.area, "빈 교실", System.currentTimeMillis(),
+            session.startedAtMs, simMode.value, devices.value, includeAllHistory = true)
         snapshotBusy.value = true
         snapshotError.value = null
         storageScope.launch {
             try {
-                snapshotStore.save(updated)
+                // 마지막 빈 교실 기록 하나만 보관한다.
+                snapshotStore.save(listOf(snapshot))
                 withContext(Dispatchers.Main.immediate) {
-                    savedSnapshots.value = updated
-                    if (!closed && scanSession.value?.id == session.id && snapshot.simulation == simMode.value) {
-                        if (asBaseline) selectBaseline(snapshot) else comparisonSnapshot.value = snapshot
+                    if (!snapshot.simulation) savedBaseline.value = snapshot
+                    if (!closed && scanSession.value?.id == session.id) {
+                        baselineSnapshot.value = snapshot
+                        applyBaseline()
+                        refresh()
                     }
-                    statusMsg.value = "스냅샷 저장됨 · ${snapshot.area} · ${snapshot.label} · ${snapshot.signals.size}개 신호"
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                snapshotError.value = "스냅샷을 저장하지 못했습니다. 기존 자료는 유지됩니다."
+                snapshotError.value = "빈 교실 기록을 저장하지 못했습니다. 다시 눌러 주세요."
             } finally { snapshotBusy.value = false }
         }
     }
 
-    fun selectBaseline(snapshot: SignalSnapshot) {
-        if (snapshot.simulation != simMode.value) { snapshotError.value = "현재 탐색 모드와 같은 자료를 선택해 주세요."; return }
-        baselineSnapshot.value = snapshot
-        areaDraft.value = snapshot.area
-        val session = scanSession.value
-        if (scanning.value && session != null && !session.areaLocked) scanSession.value = session.copy(area = snapshot.area)
-        applyBaselineToSession()
-        snapshotError.value = if (scanSession.value?.area?.equals(snapshot.area, true) == false)
-            "저장 기준은 ${snapshot.area}, 현재 수신 기록은 ${scanSession.value!!.area}입니다. 저장 자료끼리 비교하거나 새 공간에서 탐색을 시작하세요." else null
-        latestNewSignal.value = null
-        refresh()
+    /** 앱을 다시 연 뒤, 마지막으로 저장한 빈 교실 기록으로 바로 감시한다. */
+    fun useSavedBaseline() {
+        val saved = savedBaseline.value ?: return
+        baselineSnapshot.value = saved
+        areaDraft.value = saved.area
+        applyBaseline()
+    }
+
+    /** 빈 교실 기록을 비운다. 다음 시작은 1단계 측정부터다. */
+    fun resetBaseline() {
+        baselineSnapshot.value = null
+        watch.value = WatchView()
+        applyBaseline()
+    }
+
+    /** 빈 교실 기록과 목록을 비우고 새 측정을 바로 시작한다. */
+    fun restartFromEmptyRoom() {
+        stopScan()
+        resetBaseline()
+        startScan()
+    }
+
+    fun acknowledge(groupKey: String) {
+        acknowledged.value += groupKey
+        refresh() // 다음 갱신 주기를 기다리지 않고 목록에서 바로 뺀다.
     }
 
     fun setGeiger(on: Boolean) {
         if (on && !scanning.value) return
         geigerOn.value = on
-        if (on) {
-            geiger.start()
-        } else {
-            geiger.stop()
-        }
+        if (on) geiger.start() else geiger.stop()
     }
 
+    /** 자동 테스트용: 실제 무선 대신 가상 전파를 쓴다. */
     fun setSim(on: Boolean) {
         if (simMode.value == on) return
         if (scanning.value) stopScan()
         simMode.value = on
         tracker.clear()
-        engine.clear()
         _devices.value = emptyList()
-        wifiStats.value = emptyList()
-        baselineSet.value = false
-        baselineSnapshot.value = null
-        comparisonSnapshot.value = null
         scanSession.value = null
-        latestNewSignal.value = null
-        newCount.value = 0
-        statusMsg.value = if (on) "연습 모드 · 가상 기기로 탐색 흐름을 체험하세요" else "실제 탐색 · BLE와 Wi-Fi 신호를 확인합니다"
-    }
-
-    /** 시뮬레이터 조이스틱: 정면/우측 미터 단위 이동 */
-    fun simMove(forward: Double, right: Double) {
-        if (!scanning.value || !simMode.value) return
-        sim.moveUser(right, forward)
-        engine.moveAll(right, forward)
-    }
-
-    fun simRotate(deltaDeg: Double) {
-        if (!scanning.value || !simMode.value) return
-        sim.rotateUser(deltaDeg)
-        engine.rotateAll(deltaDeg)
+        resetBaseline()
     }
 
     fun simAddDevice() {
@@ -355,36 +290,28 @@ class AppViewModel(private val app: Context) : ViewModel() {
         val now = System.currentTimeMillis()
         healthTick.value = now
         val list = tracker.snapshot(now, includeInactive = true).map { d ->
-            val est = if (d.presence == SignalPresence.RECENT) engine.deviceFilter(d.trackingKey).estimate() else null
-            if (d.presence == SignalPresence.HISTORY) engine.remove(d.trackingKey)
-            d.copy(
-                bearingDeg = est?.first,
-                bearingConfidence = est?.second ?: 0.0,
-                identity = identityResolver.resolve(d.key, d.displayName, setOf(d.source), d.manufacturerIds),
-            )
+            d.copy(identity = identityResolver.resolve(d.key, d.displayName, setOf(d.source), d.manufacturerIds))
         }
-        devices.value.filter { old -> list.none { it.trackingKey == old.trackingKey } }.forEach { engine.remove(it.trackingKey) }
         _devices.value = list
-        newCount.value = list.count { it.isBaselineNew }
-        headingDeg.value = if (simMode.value) sim.userHeadingDeg else motion.headingDeg
-        geiger.setClass(
-            list.filter { it.distanceM != null && it.presence == SignalPresence.RECENT }
-                .minByOrNull { it.distanceM!! }
-                ?.distanceClass ?: DistanceClass.UNKNOWN
-        )
-        wifiStats.value = if (simMode.value) list.filter { it.source == com.classroom.rfdetector.core.ScanSource.WIFI }.map { device ->
-            val frequency = sim.devices.first { it.key == device.key }.frequencyMhz!!
-            ApRow(if (device.hidden) null else device.displayName, device.key, device.rssiEma?.toInt() ?: -100, frequency, device.hidden)
-        } else wifi.lastResults.filter { android.os.SystemClock.elapsedRealtime() - it.timestamp / 1000 in 0..90_000 }.map {
-            ApRow(
-                ssid = it.SSID?.takeIf { s -> s.isNotBlank() },
-                bssid = it.BSSID,
-                rssi = it.level,
-                freq = it.frequency,
-                hidden = it.SSID.isNullOrBlank(),
-            )
+        val view = if (baselineSet.value) watchView(list, baselineGroups, acknowledged.value, now, baselineWifi, baselineSamples) else WatchView()
+        watch.value = view
+        val fresh = view.alertKeys.count { alerted.add(it) }
+        if (fresh > 0 && alertVibration.value) geiger.pulse()
+        geiger.setClass(list.firstOrNull { it.trackingKey == findTarget.value && it.presence == SignalPresence.RECENT }?.distanceClass ?: DistanceClass.UNKNOWN)
+        // 설정 상태 확인은 1초에 한 번이면 충분하다.
+        if (now - problemsCheckedAtMs >= 1_000) {
+            problemsCheckedAtMs = now
+            problems.value = radioProblems()
+            // 감시 도중에 블루투스를 켠 경우 바로 받기 시작한다. 오류로 멈춘 탐색은 자동으로 되풀이하지 않는다.
+            if (scanning.value && !simMode.value && !ble.active && ble.lastError == null && ble.isUsable()) ble.start(::onObservation)
         }
     }
+
+    private fun radioProblems(): List<RadioProblem> = if (simMode.value) emptyList() else listOfNotNull(
+        RadioProblem.BLUETOOTH_OFF.takeIf { !ble.isUsable() },
+        RadioProblem.WIFI_OFF.takeIf { !wifi.isEnabled() },
+        RadioProblem.LOCATION_OFF.takeIf { locationServicesOff() },
+    )
 
     fun shutdown() {
         stopScan()
@@ -393,25 +320,4 @@ class AppViewModel(private val app: Context) : ViewModel() {
     }
 
     override fun onCleared() { shutdown() }
-
-    private fun preserveSession() {
-        val session = scanSession.value ?: return
-        scanSession.value = session.copy(areaLocked = true)
-        val now = System.currentTimeMillis()
-        val record = SignalSnapshot.capture("auto-${session.id}", session.area, "자동 보존 · 전체 수신 이력", now,
-            session.startedAtMs, simMode.value, devices.value, includeAllHistory = true)
-        checkpointBusy.value = true
-        pendingCheckpoints.incrementAndGet()
-        storageScope.launch {
-            try {
-                val stored = checkpointStore.upsert(record)
-                withContext(Dispatchers.Main.immediate) {
-                    checkpoints.value = stored
-                    checkpointError.value = null
-                }
-            } catch (_: Exception) { withContext(Dispatchers.Main.immediate) { checkpointError.value = "자동 보존 실패 · 비교 화면에서 수동 저장을 시도하세요." } }
-            finally { withContext(Dispatchers.Main.immediate) { checkpointBusy.value = pendingCheckpoints.decrementAndGet() > 0 } }
-        }
-    }
-
 }

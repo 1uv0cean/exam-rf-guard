@@ -2,7 +2,6 @@ package com.classroom.rfdetector
 
 import android.content.ContextWrapper
 import android.os.Looper
-import com.classroom.rfdetector.core.SignalSnapshot
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -14,6 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -21,12 +21,15 @@ class ScanSessionTest {
     @get:Rule val directory = TemporaryFolder()
     private lateinit var vm: AppViewModel
 
-    @Before fun create() {
+    private fun newViewModel(): AppViewModel {
         val app = RuntimeEnvironment.getApplication()
-        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory.root }
-        vm = AppViewModel(context)
-        awaitStorage()
+        return AppViewModel(object : ContextWrapper(app) { override fun getFilesDir() = directory.root }).also { vm = it; awaitStorage() }
+    }
+
+    @Before fun create() {
+        newViewModel()
         vm.setSim(true)
+        vm.updateAreaDraft("A 시험실")
         vm.startScan()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(5, vm.devices.value.size)
@@ -43,54 +46,66 @@ class ScanSessionTest {
         fail("Snapshot operation did not finish")
     }
 
-    private fun saveRoomA(): SignalSnapshot {
-        vm.saveSnapshot("A 시험실", "입실 전", asBaseline = true)
+    private fun saveEmptyRoom() {
+        vm.takeBaseline()
         awaitStorage()
-        return vm.savedSnapshots.value.single()
+        assertTrue(vm.baselineSet.value)
     }
 
-    @Test fun cannotRelabelOneRoomsCapturedSignalsAsAnotherRoom() {
-        saveRoomA()
-        vm.saveSnapshot("B 시험실", "시험 중")
-        awaitStorage()
-        assertEquals(1, vm.savedSnapshots.value.size)
-        assertTrue(vm.snapshotError.value!!.contains("공간"))
-    }
-
-    @Test fun selectingOtherRoomBaselineDoesNotApplyItToCurrentScan() {
-        val roomA = saveRoomA()
-        vm.selectBaseline(roomA.copy(id = "room-b", area = "B 시험실", signals = emptyList()))
+    @Test fun emptyRoomRecordStartsWatchingAndOnlyNewKindsAreFlagged() {
         assertFalse(vm.baselineSet.value)
-        assertEquals(0, vm.newCount.value)
-        assertTrue(vm.devices.value.none { it.isBaselineNew })
+        assertEquals(0, vm.watch.value.count)
+        saveEmptyRoom()
+        assertEquals("A 시험실", vm.baselineSnapshot.value!!.area)
+        assertEquals(0, vm.watch.value.count)
+        assertEquals(5, vm.watch.value.known.size)
+
+        vm.simAddDevice()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        val group = vm.watch.value.bluetooth.single()
+        assertEquals(0, group.baselineCount)
+
+        vm.acknowledge(group.key)
+        assertEquals(0, vm.watch.value.count)
+    }
+
+    @Test fun leavingAndReturningContinuesTheSameSessionAndCountsTheGap() {
+        saveEmptyRoom()
+        val session = vm.scanSession.value!!
+        vm.acknowledge("BLE:name:anything")
+        vm.pauseForBackground()
+        assertFalse(vm.scanning.value)
+        vm.resumeFromBackground()
+        assertTrue(vm.scanning.value)
+        assertEquals(session.id, vm.scanSession.value!!.id)
+        assertEquals(1, vm.scanSession.value!!.pauses)
         assertEquals(5, vm.devices.value.size)
+        assertTrue(vm.baselineSet.value)
+        assertEquals(1, vm.acknowledged.value.size)
+
+        vm.stopScan()
+        vm.resumeFromBackground()
+        assertFalse("A manual stop stays stopped", vm.scanning.value)
+        vm.startScan()
+        assertNotEquals(session.id, vm.scanSession.value!!.id)
+        assertTrue("The same empty-room record keeps being used", vm.baselineSet.value)
+        assertTrue(vm.acknowledged.value.isEmpty())
     }
 
-    @Test fun restartingForAnotherRoomKeepsArchivesAndStartsAnIndependentSession() {
-        val original = saveRoomA()
-        val originalSession = vm.scanSession.value!!.id
-        vm.stopScan()
-        vm.updateAreaDraft("B 시험실")
-        vm.startScan()
-        vm.saveSnapshot("B 시험실", "입실 전", asBaseline = true)
-        awaitStorage()
-        assertNotEquals(originalSession, vm.scanSession.value!!.id)
-        assertEquals("B 시험실", vm.scanSession.value!!.area)
-        assertEquals(2, vm.savedSnapshots.value.size)
-        assertTrue(vm.savedSnapshots.value.contains(original))
-        assertEquals("B 시험실", vm.baselineSnapshot.value!!.area)
+    @Test fun restartingFromTheEmptyRoomClearsTheRecordAndCollectsAgain() {
+        saveEmptyRoom()
+        val session = vm.scanSession.value!!.id
+        vm.restartFromEmptyRoom()
+        assertTrue(vm.scanning.value)
+        assertFalse(vm.baselineSet.value)
+        assertNull(vm.baselineSnapshot.value)
+        assertNotEquals(session, vm.scanSession.value!!.id)
     }
 
-    @Test fun previousSessionsPendingSaveDoesNotReplaceNewRoomSelection() {
-        vm.saveSnapshot("A 시험실", "입실 전", asBaseline = true)
-        vm.stopScan()
-        vm.updateAreaDraft("B 시험실")
-        vm.startScan()
-        val baselineB = SignalSnapshot("b", "B 시험실", "입실 전", System.currentTimeMillis(), System.currentTimeMillis(), true, emptyList())
-        vm.selectBaseline(baselineB)
-        awaitStorage()
-        assertEquals("b", vm.baselineSnapshot.value!!.id)
-        assertEquals("B 시험실", vm.scanSession.value!!.area)
-        assertEquals("A 시험실", vm.savedSnapshots.value.single().area)
+    @Test fun onlyTheLatestRealEmptyRoomRecordIsOfferedAfterReopening() {
+        saveEmptyRoom()
+        vm.shutdown()
+        // 가상 전파로 저장한 기록은 실제 감시에 이어 쓰지 않는다.
+        assertNull(newViewModel().savedBaseline.value)
     }
 }

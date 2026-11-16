@@ -11,6 +11,8 @@ class DeviceTracker {
         var name: String? = null
         var hidden = false
         val manufacturerIds = LinkedHashSet<Int>()
+        val hints = LinkedHashSet<SignalHint>()
+        val details = LinkedHashMap<String, String>()
         var ema: Double? = null
         var tx: Double? = null
         var periods: List<ObservationPeriod> = emptyList()
@@ -40,6 +42,8 @@ class DeviceTracker {
         val previousPeriodCount = t.periods.size
         t.periods = addToPeriods(t.periods, obs.timestampMs, obs.source.historyGapMs())
         t.manufacturerIds.addAll(obs.manufacturerIds)
+        t.hints.addAll(obs.hints)
+        if (!late) t.details.putAll(obs.details)
         if (!late || t.name == null) obs.name?.takeIf { it.isNotBlank() }?.let { t.name = it }
         if (!late) t.hidden = obs.hidden
         obs.rssi?.let { r ->
@@ -90,6 +94,8 @@ class DeviceTracker {
                 peakRssi = t.peakRssi,
                 periods = t.periods.toList(),
                 referenceRssiAt1m = t.tx,
+                hints = t.hints.toSet(),
+                details = t.details.toMap(),
             )
         }.sortedWith(
             compareByDescending<TrackedDevice> { it.isBaselineNew }

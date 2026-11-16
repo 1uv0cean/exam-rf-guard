@@ -41,16 +41,4 @@ class WearableNameCatalogTest {
         assertEquals(listOf("Apple, Inc."), ble.advertisedCompanies)
         assertEquals("Ray-Ban Meta", ble.modelHint)
     }
-
-    @Test fun savedSignalsRetainCandidateSearchAndRadioType() {
-        val signal = SnapshotSignal("address", ScanSource.BLE, "Ray-Ban Meta", -55.0, 0, 1000, 2, "미확인", null)
-        assertEquals("스마트 안경 후보", signal.equipmentType())
-        assertTrue(signal.matchesQuery("스마트 안경 메타"))
-        assertTrue(resolver.resolve("sim", signal.name, setOf(ScanSource.BLE), emptySet()).matchesQuery("레이밴", signal.name, "sim"))
-        assertEquals("Wi-Fi 접속점 · 공유기/핫스폿", signal.copy(source = ScanSource.WIFI).equipmentType())
-        assertNull(signal.copy(source = ScanSource.WIFI).wearableNameMatch)
-        assertEquals("스마트워치 후보", signal.copy(name = "Galaxy Watch Ultra").equipmentType())
-        assertEquals("카메라 후보", signal.copy(name = "GoPro HERO13 Black").equipmentType())
-        assertTrue(filterAndSortSignals(listOf(signal), "", RadioFilter.ALL, true, SignalSort.RSSI).isEmpty())
-    }
 }

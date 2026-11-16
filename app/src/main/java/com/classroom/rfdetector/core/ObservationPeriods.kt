@@ -25,17 +25,3 @@ fun addToPeriods(periods: List<ObservationPeriod>, timeMs: Long, gapMs: Long): L
     }
     return merged
 }
-
-/** Union of saved observations between the selected baseline and target, never future/other-room data.
- * Each card keeps the most recent session's statistics; cumulative snapshot counts are not added. */
-fun observedUnion(baseline: SignalSnapshot, target: SignalSnapshot, snapshots: List<SignalSnapshot>): List<SnapshotSignal> {
-    compareSnapshots(baseline, target) // Same room, mode and chronological direction.
-    return (snapshots + baseline + target)
-        .filter { it.area.equals(target.area, true) && it.simulation == target.simulation && it.capturedAtMs in baseline.capturedAtMs..target.capturedAtMs }
-        .flatMap { snapshot -> snapshot.signals.map { it to snapshot.capturedAtMs } }
-        .groupBy { it.first.matchKey }
-        .values.map { copies ->
-            val latest = copies.maxWith(compareBy<Pair<SnapshotSignal, Long>> { it.first.lastSeenMs }.thenBy { it.second }).first
-            latest.copy(presence = signalPresence(latest.source, latest.lastSeenMs, target.capturedAtMs))
-        }.sortedBy { it.matchKey }
-}

@@ -11,7 +11,9 @@ enum class SignalPresence(val label: String) {
     HISTORY("수신 기록"),
 }
 
-data class ScanSession(val id: String, val startedAtMs: Long, val area: String, val areaLocked: Boolean = false)
+/** pauses·pausedMs: 앱을 벗어나 수신이 멈췄던 횟수와 총 시간. 그 사이의 신호는 기록되지 않는다. */
+data class ScanSession(val id: String, val startedAtMs: Long, val area: String, val areaLocked: Boolean = false,
+    val pauses: Int = 0, val pausedMs: Long = 0)
 
 /** 거리 등급 — RSSI 기반 추정이며 실제 거리 측정이 아니다. */
 enum class DistanceClass(val label: String) {
@@ -32,6 +34,8 @@ data class RfObservation(
     val hidden: Boolean,      // Wi-Fi SSID 숨김 AP
     val timestampMs: Long,
     val manufacturerIds: Set<Int> = emptySet(),
+    val hints: Set<SignalHint> = emptySet(),
+    val details: Map<String, String> = emptyMap(),
 ) {
     val trackingKey: String get() = radioKey(source, key)
 }
@@ -63,6 +67,13 @@ data class TrackedDevice(
     val peakRssi: Int? = null,
     val periods: List<ObservationPeriod> = emptyList(),
     val referenceRssiAt1m: Double? = null,
+    val hints: Set<SignalHint> = emptySet(),
+    /** 기기가 알린 나머지 정보(항목 → 값). 화면 표시용이며 저장하지 않는다. */
+    val details: Map<String, String> = emptyMap(),
 ) {
     val trackingKey: String get() = radioKey(source, key)
+    /** 가장 강했던 수신도 매우 약함. 멀리(옆 교실·복도) 있을 가능성이 있으나 현장 검증된 기준은 아니다. */
+    val weakSignal: Boolean get() = (peakRssi ?: -127) < WEAK_SIGNAL_DBM
 }
+
+const val WEAK_SIGNAL_DBM = -85
