@@ -58,7 +58,7 @@ class ScanSessionTest {
         saveEmptyRoom()
         assertEquals("A 시험실", vm.baselineSnapshot.value!!.area)
         assertEquals(0, vm.watch.value.count)
-        assertEquals(5, vm.watch.value.known.size)
+        assertEquals(5, vm.watch.value.knownGroups.size)
 
         vm.simAddDevice()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))

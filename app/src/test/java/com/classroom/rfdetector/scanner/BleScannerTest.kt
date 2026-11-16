@@ -6,6 +6,7 @@ import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.SystemClock
 import com.classroom.rfdetector.core.DeviceTracker
+import com.classroom.rfdetector.core.DistanceClass
 import com.classroom.rfdetector.core.RfObservation
 import org.junit.Assert.*
 import org.junit.Before
@@ -45,7 +46,7 @@ class BleScannerTest {
         assertNull(observation.txPower)
         val tracker = DeviceTracker()
         tracker.update(observation)
-        assertEquals(1.0, tracker.snapshot(observation.timestampMs).single().distanceM!!, 0.001)
+        assertEquals(DistanceClass.VERY_CLOSE, tracker.snapshot(observation.timestampMs).single().distanceClass)
         scanner.stop()
         assertTrue(shadowOf(adapter.bluetoothLeScanner).scanCallbacks.isEmpty())
     }

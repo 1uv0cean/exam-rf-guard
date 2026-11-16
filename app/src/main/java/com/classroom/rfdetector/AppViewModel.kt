@@ -3,6 +3,7 @@ package com.classroom.rfdetector
 import android.content.Context
 import android.location.LocationManager
 import android.os.Build
+import android.provider.Settings
 import androidx.core.location.LocationManagerCompat
 import androidx.lifecycle.ViewModel
 import com.classroom.rfdetector.core.DeviceIdentityResolver
@@ -14,10 +15,12 @@ import com.classroom.rfdetector.core.ScanSession
 import com.classroom.rfdetector.core.SignalPresence
 import com.classroom.rfdetector.core.SignalSnapshot
 import com.classroom.rfdetector.core.SilentMode
+import com.classroom.rfdetector.core.SnapshotSignal
 import com.classroom.rfdetector.core.SnapshotStore
 import com.classroom.rfdetector.core.TrackedDevice
 import com.classroom.rfdetector.core.WatchView
 import com.classroom.rfdetector.core.baselineGroupCounts
+import com.classroom.rfdetector.core.baselineSamples
 import com.classroom.rfdetector.core.baselineWifiAddresses
 import com.classroom.rfdetector.core.watchView
 import com.classroom.rfdetector.scanner.BleScanner
@@ -36,6 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import java.util.concurrent.Executors
 
 /** 감시가 완전하지 않은 이유. 해결 전까지는 해당 전파가 있어도 표시되지 않는다. */
@@ -78,7 +82,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
     private val snapshotStore = SnapshotStore(app.filesDir)
     private var baselineGroups: Map<String, Int> = emptyMap()
     private var baselineWifi: Set<String> = emptySet()
-    private var baselineSamples: List<com.classroom.rfdetector.core.SnapshotSignal> = emptyList()
+    private var baselineSamples: List<SnapshotSignal> = emptyList()
 
     /** 빈 교실 기록과 비교해 지금 잡히는 전파를 묶음으로 나눈 결과. */
     val watch = MutableStateFlow(WatchView())
@@ -166,7 +170,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
             tracker.clear()
             _devices.value = emptyList()
             watch.value = WatchView()
-            scanSession.value = ScanSession(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), areaDraft.value.trim().ifBlank { "시험실" })
+            scanSession.value = ScanSession(UUID.randomUUID().toString(), System.currentTimeMillis(), areaDraft.value.trim().ifBlank { "시험실" })
         }
         applyBaseline()
         scanning.value = true
@@ -195,7 +199,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
         if (scanning.value) tracker.update(obs)
     }
 
-    private fun airplaneModeOff() = android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) == 0
+    private fun airplaneModeOff() = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 0
 
     /** 비행기 모드와 방해 금지 권한을 다시 확인한다. 권한을 방금 허용했다면 바로 무음으로 바꾼다. 가상 전파로 도는 자동 테스트에서는 휴대폰 설정을 건드리지 않는다. */
     fun checkExamMode() {
@@ -224,7 +228,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
         baselineSet.value = baseline != null
         baselineGroups = baseline?.let(::baselineGroupCounts) ?: emptyMap()
         baselineWifi = baseline?.let(::baselineWifiAddresses) ?: emptySet()
-        baselineSamples = baseline?.let { com.classroom.rfdetector.core.baselineSamples(it) } ?: emptyList()
+        baselineSamples = baseline?.let { baselineSamples(it) } ?: emptyList()
     }
 
     /** 지금까지 잡힌 전파 전부를 이 교실에 원래 있던 것으로 저장하고 감시를 시작한다. */
@@ -232,8 +236,7 @@ class AppViewModel(private val app: Context) : ViewModel() {
         val session = scanSession.value ?: return
         if (!scanning.value || snapshotBusy.value || devices.value.isEmpty()) return
         refresh()
-        val snapshot = SignalSnapshot.capture(java.util.UUID.randomUUID().toString(), session.area, "빈 교실", System.currentTimeMillis(),
-            session.startedAtMs, simMode.value, devices.value, includeAllHistory = true)
+        val snapshot = SignalSnapshot.capture(session.area, System.currentTimeMillis(), simMode.value, devices.value)
         snapshotBusy.value = true
         snapshotError.value = null
         storageScope.launch {

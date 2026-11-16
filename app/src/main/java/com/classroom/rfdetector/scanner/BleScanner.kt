@@ -37,11 +37,7 @@ class BleScanner(context: Context) {
     @Volatile var lastError: String? = null
         private set
 
-    fun hasHardware(): Boolean = adapter != null
-
     fun isUsable(): Boolean = try { adapter?.isEnabled == true } catch (_: SecurityException) { false }
-
-    var onError: ((String) -> Unit)? = null
 
     fun start(onObs: (RfObservation) -> Unit): Boolean {
         stop()
@@ -161,7 +157,6 @@ class BleScanner(context: Context) {
     private fun fail(message: String): Boolean {
         active = false
         lastError = message
-        onError?.invoke(message)
         return false
     }
 }

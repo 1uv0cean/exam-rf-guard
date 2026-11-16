@@ -12,8 +12,8 @@ android {
         applicationId = "com.classroom.rfdetector"
         minSdk = 29
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.1.0"
+        versionCode = 9
+        versionName = "1.0.0"
     }
 
     // 정식 서명: 키 파일과 비밀번호는 저장소에 두지 않는다(OpenBao kv/exam-rf-guard/prod/env).
@@ -54,6 +54,5 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 }

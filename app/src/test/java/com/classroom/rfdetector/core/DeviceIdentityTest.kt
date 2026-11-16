@@ -16,22 +16,20 @@ class DeviceIdentityTest {
     @Test fun randomAddressCanStillExposeAdvertisingCompany() {
         val identity = resolver.resolve("DA:11:22:33:44:55", "AirPods Pro", setOf(ScanSource.BLE), setOf(76))
         assertEquals(listOf("Apple, Inc."), identity.advertisedCompanies)
-        assertEquals("AirPods Pro", identity.modelHint)
         assertNull(identity.macOrganization)
     }
 
-    @Test fun modelComesFromSpecificBleNameNotMacOrWifiSsid() {
-        assertNull(resolver.resolve("00:11:22:33:44:55", null, setOf(ScanSource.BLE), setOf(76)).modelHint)
-        assertNull(resolver.resolve("00:11:22:33:44:55", "AirPods Pro", setOf(ScanSource.WIFI), emptySet()).modelHint)
-        assertEquals("WF-1000XM5", resolver.resolve("sim", "Sony WF-1000XM5", setOf(ScanSource.BLE), emptySet()).modelHint)
-        assertEquals("Galaxy Buds3 Pro", resolver.resolve("sim", "My Galaxy Buds3 Pro", setOf(ScanSource.BLE), setOf(117)).modelHint)
+    @Test fun nameMatchComesFromSpecificBleNameNotMacOrWifiSsid() {
+        assertNull(resolver.resolve("00:11:22:33:44:55", null, setOf(ScanSource.BLE), setOf(76)).audioNameMatch)
+        assertNull(resolver.resolve("00:11:22:33:44:55", "AirPods Pro", setOf(ScanSource.WIFI), emptySet()).audioNameMatch)
+        assertEquals("Sony", resolver.resolve("sim", "Sony WF-1000XM5", setOf(ScanSource.BLE), emptySet()).audioNameMatch!!.brand)
+        assertEquals("Samsung", resolver.resolve("sim", "My Galaxy Buds3 Pro", setOf(ScanSource.BLE), setOf(117)).audioNameMatch!!.brand)
     }
 
     @Test fun unknownModelsAndIdsAreExplicit() {
         val identity = resolver.resolve("sim", "Unknown earbuds", setOf(ScanSource.BLE), setOf(65534))
-        assertNull(identity.modelHint)
+        assertNull(identity.audioNameMatch)
         assertTrue(identity.advertisedCompanies.single().contains("FFFE"))
-        assertTrue(identity.addressNote.contains("가상"))
     }
 
     @Test fun companyIdsSurviveAdvertisementsWithoutManufacturerData() {

@@ -14,7 +14,6 @@ object RfColors {
     val bg = Color(0xFF0A1118)
     val surface = Color(0xFF121E29)
     val surfaceAlt = Color(0xFF203140)
-    val grid = Color(0x1E9FB8CC)
     val primary = Color(0xFF62E0CB)
     val danger = Color(0xFFFF5252)
     val dangerDim = Color(0xFF2E161A)

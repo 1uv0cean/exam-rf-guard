@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.classroom.rfdetector.core.RfObservation
@@ -20,10 +21,6 @@ import kotlinx.coroutines.*
 class WifiScanner(context: Context, private val scope: CoroutineScope) {
     private val app = context.applicationContext
     private val wifi = app.getSystemService(Context.WIFI_SERVICE) as WifiManager
-    @Volatile var lastResults: List<ScanResult> = emptyList()
-        private set
-    @Volatile var lastUpdatedMs: Long? = null
-        private set
     @Volatile var active: Boolean = false
         private set
     @Volatile var lastError: String? = null
@@ -31,7 +28,6 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
     /** 이번 탐색에서 끝까지 완료된 탐색 횟수. 빈 교실 기록이 충분한지 판단하는 데 쓴다. */
     @Volatile var completedScans: Int = 0
         private set
-    var onError: ((String) -> Unit)? = null
     private var job: Job? = null
     private var receiver: BroadcastReceiver? = null
     private val observedTimestamps = mutableMapOf<String, Long>()
@@ -40,8 +36,6 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
 
     fun start(onObs: (RfObservation) -> Unit, periodMs: Long = 30_000L) {
         stop()
-        lastResults = emptyList()
-        lastUpdatedMs = null
         lastError = null
         completedScans = 0
         observedTimestamps.clear()
@@ -59,8 +53,6 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
                     val results = wifi.scanResults.filter {
                         it.timestamp >= startedAtElapsedUs && elapsed - it.timestamp / 1000 in 0..90_000
                     }
-                    lastResults = results
-                    lastUpdatedMs = now
                     lastError = null
                     completedScans++
                     results.forEach { result ->
@@ -93,7 +85,7 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
     }
 
     private fun details(result: ScanResult): Map<String, String> {
-        val modern = android.os.Build.VERSION.SDK_INT >= 30
+        val modern = Build.VERSION.SDK_INT >= 30
         val details = LinkedHashMap(wifiDetails(result.frequency, result.capabilities, if (modern) result.wifiStandard else null))
         // 부가 정보 블록이 없는 결과에서는 이 조회 자체가 실패할 수 있다.
         if (modern) runCatching { result.informationElements }.getOrNull().orEmpty().filter { it.id == 221 }.forEach { element ->
@@ -113,6 +105,5 @@ class WifiScanner(context: Context, private val scope: CoroutineScope) {
 
     private fun reportError(message: String) {
         lastError = message
-        onError?.invoke(message)
     }
 }

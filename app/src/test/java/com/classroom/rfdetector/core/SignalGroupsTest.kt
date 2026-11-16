@@ -14,7 +14,7 @@ class SignalGroupsTest {
         tracker.update(RfObservation(address, ScanSource.WIFI, name, rssi, null, name == null, atMs))
 
     private fun baselineAt(nowMs: Long) = baselineGroupCounts(
-        SignalSnapshot.capture("b", "A", "기준점", nowMs, 0, false, tracker.snapshot(nowMs, includeInactive = true), includeAllHistory = true))
+        SignalSnapshot.capture("A", nowMs, false, tracker.snapshot(nowMs, includeInactive = true)))
 
     private fun view(baseline: Map<String, Int>, nowMs: Long, acknowledged: Set<String> = emptySet()) =
         watchView(tracker.snapshot(nowMs, includeInactive = true), baseline, acknowledged, nowMs)
@@ -32,7 +32,6 @@ class SignalGroupsTest {
         ble("AA:00:00:00:00:01", later + 40_000); ble("AA:00:00:00:00:03", later + 40_000)
         val settled = view(baseline, later + 41_000)
         assertEquals(0, settled.count)
-        assertEquals(2, settled.known.size)
     }
 
     @Test fun oneMoreDeviceOfTheSameKindIsFlaggedOnceItPersists() {
@@ -85,7 +84,7 @@ class SignalGroupsTest {
 
     @Test fun hiddenNetworkFromARouterAlreadyInTheEmptyRoomIsNotNew() {
         wifi("b4:a9:4f:c7:31:a2", 0, "KT_GiGA_5G_319F", rssi = -41)
-        val snapshot = SignalSnapshot.capture("b", "A", "빈 교실", 1_000, 0, false, tracker.snapshot(1_000, includeInactive = true), includeAllHistory = true)
+        val snapshot = SignalSnapshot.capture("A", 1_000, false, tracker.snapshot(1_000, includeInactive = true))
         val baseline = baselineGroupCounts(snapshot)
         val routers = baselineWifiAddresses(snapshot)
         // 실제로 잡힌 사례: 같은 공유기가 측정 뒤에 내보인 이름 없는 와이파이. 첫 자리만 다르다.
@@ -98,7 +97,6 @@ class SignalGroupsTest {
         assertEquals("Without the router list both would be flagged", 2, watchView(devices, baseline, emptySet(), 101_000).wifi.size)
         val view = watchView(devices, baseline, emptySet(), 101_000, routers)
         assertEquals("da:a1:19:3b:7c:01", view.wifi.single().strongest.key)
-        assertEquals(2, view.known.size)
     }
 
     @Test fun knownListKeepsTheEmptyRoomOrderAndOnlyItsStateChanges() {
@@ -106,7 +104,7 @@ class SignalGroupsTest {
         ble("AA:00:00:00:00:01", 0, rssi = -50); ble("AA:00:00:00:00:02", 0, rssi = -80)
         ble("BB:00:00:00:00:01", 0, name = "Class TV", rssi = -60, ids = setOf(117), hints = emptySet())
         ble("CC:00:00:00:00:01", 0, hints = setOf(SignalHint.APPLE_FIND_MY))
-        val snapshot = SignalSnapshot.capture("b", "A", "빈 교실", 1_000, 0, false, tracker.snapshot(1_000, includeInactive = true), includeAllHistory = true)
+        val snapshot = SignalSnapshot.capture("A", 1_000, false, tracker.snapshot(1_000, includeInactive = true))
         val counts = baselineGroupCounts(snapshot)
         val samples = baselineSamples(snapshot)
         val order = listOf("WIFI:name:school", "BLE:kind:76:APPLE_ACTIVE", "BLE:name:class tv")
@@ -148,7 +146,6 @@ class SignalGroupsTest {
         assertEquals(2, result.findMy.size)
         assertEquals("BLE:name:far watch", result.far.single().key)
         assertEquals(0, result.count)
-        assertEquals("AA:00:00:00:00:05", result.known.single().key)
         assertTrue(result.alertKeys.isEmpty())
     }
 }

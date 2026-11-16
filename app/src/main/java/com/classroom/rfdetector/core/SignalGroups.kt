@@ -1,5 +1,7 @@
 package com.classroom.rfdetector.core
 
+import java.util.Locale
+
 /** 새 주소가 이 시간 넘게 이어져야 "늘어났다"고 본다. 주소가 바뀌는 순간 옛 주소와 겹치는 것을 거른다. */
 const val ESTABLISHED_MS = 30_000L
 
@@ -10,7 +12,7 @@ const val ESTABLISHED_MS = 30_000L
 fun signalGroupKey(source: ScanSource, address: String, name: String, manufacturerIds: Set<Int>, hints: Set<SignalHint>): String {
     val advertised = advertisedName(address, name)
     return when {
-        advertised != null -> "${source.name}:name:${advertised.lowercase(java.util.Locale.ROOT)}"
+        advertised != null -> "${source.name}:name:${advertised.lowercase(Locale.ROOT)}"
         source == ScanSource.WIFI -> "WIFI:hidden"
         manufacturerIds.isEmpty() && hints.isEmpty() -> "BLE:unknown"
         else -> "BLE:kind:${manufacturerIds.sorted().joinToString(",")}:${hints.primary?.name.orEmpty()}"
@@ -53,7 +55,6 @@ data class WatchView(
     val bluetooth: List<SignalGroup> = emptyList(),
     val far: List<SignalGroup> = emptyList(),
     val findMy: List<TrackedDevice> = emptyList(),
-    val known: List<TrackedDevice> = emptyList(),
     val knownGroups: List<KnownGroup> = emptyList(),
 ) {
     val count: Int get() = wifi.size + bluetooth.size
@@ -63,14 +64,14 @@ data class WatchView(
 
 /** 빈 교실 기록에 있던 와이파이 주소. 같은 공유기가 내는 다른 주소를 알아보는 데 쓴다. */
 fun baselineWifiAddresses(baseline: SignalSnapshot): Set<String> =
-    baseline.signals.filter { it.source == ScanSource.WIFI }.map { it.address.uppercase(java.util.Locale.ROOT) }.toSet()
+    baseline.signals.filter { it.source == ScanSource.WIFI }.map { it.address.uppercase(Locale.ROOT) }.toSet()
 
 /**
  * 공유기 한 대는 이름별·대역별로 주소를 여러 개 쓰는데, 이 주소들은 첫 자리나 끝 자리만 다르다.
  * 빈 교실 기록의 주소와 나머지 다섯 자리가 같으면 같은 공유기가 낸 것으로 본다.
  */
 fun isSameAccessPoint(address: String, baselineWifi: Set<String>): Boolean {
-    val candidate = address.uppercase(java.util.Locale.ROOT)
+    val candidate = address.uppercase(Locale.ROOT)
     if (candidate.length != 17) return false
     return baselineWifi.any { known -> known.length == 17 && (known.substring(3) == candidate.substring(3) || known.dropLast(2) == candidate.dropLast(2)) }
 }
@@ -81,9 +82,8 @@ fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowle
     // 전원을 끈 아이폰과 에어태그가 내는 신호. 제출한 휴대폰 수만큼 잡힐 수 있어 알리지 않고 따로 센다.
     val (findMy, others) = live.partition { it.source == ScanSource.BLE && it.hints.primary == SignalHint.APPLE_FIND_MY }
     // 이름을 숨긴 것까지 포함해, 빈 교실에 있던 공유기가 뒤늦게 내보인 다른 주소는 원래 있던 것이다.
-    val (sameRouter, rest) = others.partition { it.source == ScanSource.WIFI && isSameAccessPoint(it.key, baselineWifi) }
+    val rest = others.filterNot { it.source == ScanSource.WIFI && isSameAccessPoint(it.key, baselineWifi) }
     val flagged = mutableListOf<SignalGroup>()
-    val known = sameRouter.toMutableList()
     rest.groupBy { it.groupKey }.forEach { (key, members) ->
         val sorted = members.sortedByDescending { it.rssiEma ?: Double.NEGATIVE_INFINITY }
         val before = baseline[key] ?: 0
@@ -98,7 +98,7 @@ fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowle
             established > before -> SignalGroup(key, sorted, before, alert = true)
             else -> null
         }
-        if (group != null) flagged += group else known += sorted
+        if (group != null) flagged += group
     }
     val byStrength = compareByDescending<SignalGroup> { it.strongest.rssiEma ?: Double.NEGATIVE_INFINITY }
     val (far, near) = flagged.sortedWith(byStrength).partition { (it.strongest.rssiEma ?: -127.0) < WEAK_SIGNAL_DBM }
@@ -107,7 +107,6 @@ fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowle
         bluetooth = near.filter { it.strongest.source != ScanSource.WIFI },
         far = far,
         findMy = findMy,
-        known = known,
         knownGroups = knownGroups(devices, baseline, acknowledged, baselineWifi, samples),
     )
 }

@@ -68,12 +68,9 @@ class SignalHintsTest {
         val devices = tracker.snapshot(2000)
         val watch = devices.first { it.source == ScanSource.BLE }
         assertEquals(setOf(SignalHint.APPLE_ACTIVE, SignalHint.WATCH), watch.hints)
-        assertFalse(watch.weakSignal)
-        val hotspot = devices.first { it.source == ScanSource.WIFI }
-        assertTrue(hotspot.weakSignal)
 
         val store = SnapshotStore(directory.root)
-        store.save(listOf(SignalSnapshot.capture("id", "A", "입실 전", 3000, 0, false, devices, includeAllHistory = true)))
+        store.save(listOf(SignalSnapshot.capture("A", 3000, false, devices)))
         val loaded = store.load().single().signals.associateBy { it.source }
         assertEquals(setOf(SignalHint.APPLE_ACTIVE, SignalHint.WATCH), loaded.getValue(ScanSource.BLE).hints)
     }

@@ -63,18 +63,15 @@ class WifiScannerTest {
         scanner.start(onObs = { observations.add(it) })
         complete()
         assertEquals(listOf("fresh"), observations.map { it.key })
-        assertEquals(listOf("fresh"), scanner.lastResults.map { it.BSSID })
     }
 
     @Test fun failedCompletionDoesNotReprocessCachedResults() {
         shadowOf(manager).setScanResults(listOf(result("cached", "cached")))
-        val errors = mutableListOf<String>()
-        scanner.onError = { errors.add(it) }
         scanner.start(onObs = { observations.add(it) })
         complete(false)
         assertTrue(observations.isEmpty())
-        assertNull(scanner.lastUpdatedMs)
-        assertTrue(errors.isNotEmpty())
+        assertEquals(0, scanner.completedScans)
+        assertNotNull(scanner.lastError)
     }
 
     @Test fun stopUnregistersReceiver() {
@@ -112,7 +109,6 @@ class WifiScannerTest {
         scanner.start(onObs = { observations.add(it) })
         complete()
         assertTrue(observations.isEmpty())
-        assertTrue(scanner.lastResults.isEmpty())
     }
 
     @Test fun queuedBroadcastForStoppedReceiverDoesNotRunInRestartedSession() {
@@ -134,16 +130,15 @@ class WifiScannerTest {
         assertTrue(scanner.active)
         complete(false)
         assertNotNull(scanner.lastError)
-        assertNull(scanner.lastUpdatedMs)
+        assertEquals(0, scanner.completedScans)
         complete()
         assertNull(scanner.lastError)
-        assertNotNull(scanner.lastUpdatedMs)
-        assertTrue(scanner.lastResults.isEmpty())
+        assertEquals(1, scanner.completedScans)
         assertTrue(observations.isEmpty())
         scanner.stop()
         assertFalse(scanner.active)
         scanner.start(onObs = { observations.add(it) })
-        assertNull(scanner.lastUpdatedMs)
+        assertEquals(0, scanner.completedScans)
     }
 }
 

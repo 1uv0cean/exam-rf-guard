@@ -2,12 +2,9 @@ package com.classroom.rfdetector.core
 
 import java.util.concurrent.ConcurrentHashMap
 
-enum class ObservationUpdate { FIRST_SEEN, CURRENT, LATE, REAPPEARED }
-
 /** Keep each radio/address independent, including its name, strength and history. */
 class DeviceTracker {
     private class Track(val key: String, val source: ScanSource) {
-        val trackingKey: String get() = radioKey(source, key)
         var name: String? = null
         var hidden = false
         val manufacturerIds = LinkedHashSet<Int>()
@@ -16,7 +13,6 @@ class DeviceTracker {
         var ema: Double? = null
         var tx: Double? = null
         var periods: List<ObservationPeriod> = emptyList()
-        val history = ArrayDeque<RssiPoint>()
         var firstSeen = 0L
         var lastSeen = 0L
         var observationCount = 0
@@ -25,12 +21,8 @@ class DeviceTracker {
 
     private val tracks = ConcurrentHashMap<String, Track>()
 
-    /** null 이면 아직 기준점을 안 잡음. 잡힌 이후 등장한 key 가 NEW 경보 대상 */
-    @Volatile
-    var baselineKeys: Set<String>? = null
-
     @Synchronized
-    fun update(obs: RfObservation): ObservationUpdate {
+    fun update(obs: RfObservation) {
         val firstObservation = !tracks.containsKey(obs.trackingKey)
         val t = tracks.getOrPut(obs.trackingKey) {
             Track(obs.key, obs.source).also { it.firstSeen = obs.timestampMs }
@@ -51,22 +43,12 @@ class DeviceTracker {
                 t.ema = RssiFilter.ema(if (t.periods.size > previousPeriodCount) null else t.ema, r)
                 t.tx = obs.txPower?.takeIf { it in -100..20 && it != 127 }?.toDouble() ?: t.tx
             }
-            t.history.addLast(RssiPoint(obs.timestampMs, r))
-            if (late) t.history.sortBy { it.tsMs }
             t.peakRssi = maxOf(t.peakRssi ?: r, r)
-            while (t.history.size > 512 || (t.history.size > 1 && t.lastSeen - t.history.first().tsMs > 10_000)) t.history.removeFirst()
-        }
-        return when {
-            firstObservation -> ObservationUpdate.FIRST_SEEN
-            late -> ObservationUpdate.LATE
-            t.periods.size > previousPeriodCount -> ObservationUpdate.REAPPEARED
-            else -> ObservationUpdate.CURRENT
         }
     }
 
     @Synchronized
     fun snapshot(nowMs: Long, includeInactive: Boolean = false): List<TrackedDevice> {
-        val base = baselineKeys
         return tracks.values.filter { includeInactive || nowMs - it.lastSeen <= 90_000L }.map { t ->
             val rssi = t.ema
             val dist = rssi?.let { RssiFilter.distanceM(it, t.tx ?: RssiFilter.DEFAULT_TX_DBM) }
@@ -78,15 +60,9 @@ class DeviceTracker {
                 source = t.source,
                 hidden = t.hidden,
                 rssiEma = rssi,
-                trendDbPer10s = RssiFilter.trendDbPer10s(t.history.toList()),
-                distanceM = dist,
                 distanceClass = RssiFilter.classify(dist),
                 firstSeenMs = t.firstSeen,
                 lastSeenMs = t.lastSeen,
-                isBaselineNew = base != null && t.trackingKey !in base,
-                bearingDeg = null,
-                bearingConfidence = 0.0,
-                history = t.history.toList(),
                 manufacturerIds = t.manufacturerIds.toSet(),
                 presence = presence,
                 lastSeenAgeSeconds = ageMs / 1000,
@@ -98,8 +74,7 @@ class DeviceTracker {
                 details = t.details.toMap(),
             )
         }.sortedWith(
-            compareByDescending<TrackedDevice> { it.isBaselineNew }
-                .thenBy { it.presence.ordinal }
+            compareBy<TrackedDevice> { it.presence.ordinal }
                 .thenByDescending { it.rssiEma ?: Double.NEGATIVE_INFINITY }
         )
     }
@@ -111,22 +86,8 @@ class DeviceTracker {
     }
 
     @Synchronized
-    fun takeBaseline() {
-        baselineKeys = tracks.values.map { it.trackingKey }.toSet()
-    }
-
-    @Synchronized
-    fun setBaseline(keys: Set<String>) { baselineKeys = keys.toSet() }
-
-    @Synchronized
-    fun clearBaseline() { baselineKeys = null }
-
-    @Synchronized
     fun clear() {
         tracks.clear()
-        baselineKeys = null
     }
-
-    fun size(): Int = tracks.size
 }
 
