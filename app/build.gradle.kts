@@ -12,8 +12,25 @@ android {
         applicationId = "com.classroom.rfdetector"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0-preview.1"
+        versionCode = 7
+        versionName = "2.0.0"
+    }
+
+    // 정식 서명: 키 파일과 비밀번호는 저장소에 두지 않는다(OpenBao kv/exam-rf-guard/prod/env).
+    // 환경 변수가 없으면 release 는 서명 없이 빌드된다. 절차는 docs/RELEASE.ko.md.
+    val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
+    if (releaseStoreFile != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_STORE_PASSWORD")
+            }
+        }
+        buildTypes {
+            getByName("release") { signingConfig = signingConfigs.getByName("release") }
+        }
     }
 
     compileOptions {
