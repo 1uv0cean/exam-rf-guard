@@ -338,8 +338,8 @@ fun GuideScreen() {
         Surface(color = okDim, shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("잡는 것", fontWeight = FontWeight.Bold, color = RfColors.ok)
-                Text("· 와이파이형 초소형 카메라(단추·볼펜형 포함)\n· 핫스팟을 켠 휴대폰\n· 와이파이 에그(휴대용 와이파이)", style = MaterialTheme.typography.bodyMedium)
-                Text("와이파이가 켜져 있는 동안 계속 보입니다. 빈 교실 기록에 없던 것만 골라서 알립니다.", style = MaterialTheme.typography.bodySmall)
+                Text("· 자체 와이파이를 여는 초소형 카메라(단추·볼펜형 포함)\n· 핫스팟을 켠 휴대폰\n· 와이파이 에그(휴대용 와이파이)", style = MaterialTheme.typography.bodyMedium)
+                Text("와이파이를 켜면 30초~1분 안에 보입니다. 빈 교실 기록에 없던 이름만 알리며, 이름과 설정에 따라 알리지 않는 경우가 있습니다.", style = MaterialTheme.typography.bodySmall)
             }
         }
         Surface(color = warnDim, shape = RoundedCornerShape(18.dp)) {
