@@ -58,8 +58,6 @@ data class WatchView(
     val knownGroups: List<KnownGroup> = emptyList(),
 ) {
     val count: Int get() = wifi.size + bluetooth.size
-    /** 진동 알림을 한 번씩만 울리기 위한 키. 같은 묶음이 더 늘어나면 다시 알린다. */
-    val alertKeys: Set<String> get() = (wifi + bluetooth).filter { it.alert }.map { "${it.key}#${it.devices.size}" }.toSet()
 }
 
 /** 빈 교실 기록에 있던 와이파이 주소. 같은 공유기가 내는 다른 주소를 알아보는 데 쓴다. */

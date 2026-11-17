@@ -1,9 +1,12 @@
 package com.classroom.rfdetector.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineBreak
 import com.classroom.rfdetector.core.DistanceClass
 
 /**
@@ -52,7 +55,21 @@ fun AppRfTheme(content: @Composable () -> Unit) {
             onSurfaceVariant = RfColors.textDim,
             error = RfColors.danger,
         ),
+        typography = koreanTypography,
         content = content,
+    )
+}
+
+/** 한글이 낱말 중간("기록합니/다")에서 끊기지 않게 어절 단위로 줄을 바꾼다. Android 14 이상에서 적용되고, 그 아래에서는 기존처럼 글자 단위로 끊긴다. */
+private fun TextStyle.byPhrase() = copy(lineBreak = LineBreak(LineBreak.Strategy.Simple, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase))
+
+private val koreanTypography = Typography().run {
+    copy(
+        displayLarge = displayLarge.byPhrase(), displayMedium = displayMedium.byPhrase(), displaySmall = displaySmall.byPhrase(),
+        headlineLarge = headlineLarge.byPhrase(), headlineMedium = headlineMedium.byPhrase(), headlineSmall = headlineSmall.byPhrase(),
+        titleLarge = titleLarge.byPhrase(), titleMedium = titleMedium.byPhrase(), titleSmall = titleSmall.byPhrase(),
+        bodyLarge = bodyLarge.byPhrase(), bodyMedium = bodyMedium.byPhrase(), bodySmall = bodySmall.byPhrase(),
+        labelLarge = labelLarge.byPhrase(), labelMedium = labelMedium.byPhrase(), labelSmall = labelSmall.byPhrase(),
     )
 }
 

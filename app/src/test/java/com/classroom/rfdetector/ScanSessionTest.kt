@@ -29,7 +29,6 @@ class ScanSessionTest {
     @Before fun create() {
         newViewModel()
         vm.setSim(true)
-        vm.updateAreaDraft("A 시험실")
         vm.startScan()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(5, vm.devices.value.size)
@@ -56,7 +55,6 @@ class ScanSessionTest {
         assertFalse(vm.baselineSet.value)
         assertEquals(0, vm.watch.value.count)
         saveEmptyRoom()
-        assertEquals("A 시험실", vm.baselineSnapshot.value!!.area)
         assertEquals(0, vm.watch.value.count)
         assertEquals(5, vm.watch.value.knownGroups.size)
 

@@ -60,7 +60,6 @@ class SignalGroupsTest {
         ble("BB:00:00:00:00:01", 131_000, name = "Galaxy Buds2 Pro", ids = setOf(117), hints = emptySet())
         val persisted = view(baseline, 132_000)
         assertTrue(persisted.bluetooth.single().alert)
-        assertEquals(setOf("BLE:name:galaxy buds2 pro#1"), persisted.alertKeys)
         // 사라지면 목록에서 빠진다. 누적하지 않는다.
         assertEquals(0, view(baseline, 200_000).count)
         // 확인함으로 표시한 묶음은 주소가 바뀌어도 다시 뜨지 않는다.
@@ -146,6 +145,5 @@ class SignalGroupsTest {
         assertEquals(2, result.findMy.size)
         assertEquals("BLE:name:far watch", result.far.single().key)
         assertEquals(0, result.count)
-        assertTrue(result.alertKeys.isEmpty())
     }
 }

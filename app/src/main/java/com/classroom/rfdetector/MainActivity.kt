@@ -72,8 +72,6 @@ fun App() {
     LaunchedEffect(focused) { vm.checkExamMode() }
     val scanning by vm.scanning.collectAsState()
     val simMode by vm.simMode.collectAsState()
-    val baselineSet by vm.baselineSet.collectAsState()
-    val alertOn by vm.alertVibration.collectAsState()
     DisposableEffect(scanning) {
         val window = (context as? Activity)?.window
         if (scanning) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -91,10 +89,8 @@ fun App() {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val sub = guide || findKey != null
-                if (sub) TextButton(onClick = { if (findKey != null) closeFind() else guide = false }, modifier = Modifier.semantics { contentDescription = "돌아가기" }) { Text("‹") }
+                if (sub) TextButton(onClick = { if (findKey != null) closeFind() else guide = false }, modifier = Modifier.semantics { contentDescription = "돌아가기" }) { Text("‹", style = MaterialTheme.typography.headlineLarge) }
                 Text(if (findKey != null) "위치 찾기" else if (guide) "안내" else "KoriyoSCAN", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                if (!sub && scanning && baselineSet) TextButton(onClick = { vm.alertVibration.value = !alertOn },
-                    modifier = Modifier.semantics { contentDescription = if (alertOn) "새 전파 진동 알림 켜짐" else "새 전파 진동 알림 꺼짐" }) { Text(if (alertOn) "진동 켬" else "진동 끔") }
                 if (!sub) TextButton(onClick = { guide = true }) { Text("안내") }
             }
             Box(Modifier.weight(1f)) {

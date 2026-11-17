@@ -68,7 +68,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
     val scanning = MutableStateFlow(false)
     val simMode = MutableStateFlow(false)
     val geigerOn = MutableStateFlow(false)
-    val areaDraft = MutableStateFlow("시험실")
     val scanSession = MutableStateFlow<ScanSession?>(null)
     val healthTick = MutableStateFlow(0L)
 
@@ -92,9 +91,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
     val findTarget = MutableStateFlow<String?>(null)
     /** 감독관이 "확인함"으로 표시한 묶음(groupKey). 이번 감시 동안만 유지한다. */
     val acknowledged = MutableStateFlow<Set<String>>(emptySet())
-    /** 새 전파가 처음 잡히면 진동으로 한 번 알린다. */
-    val alertVibration = MutableStateFlow(true)
-    private val alerted = mutableSetOf<String>()
     private var pausedAtMs: Long? = null
     private val silent = SilentMode(app)
     /** 방해 금지 권한이 없어 휴대폰을 자동으로 무음으로 바꾸지 못하는 상태. */
@@ -166,11 +162,10 @@ class AppViewModel(private val app: Context) : ViewModel() {
                 pausedMs = paused.pausedMs + (System.currentTimeMillis() - resumedPauseAtMs!!).coerceAtLeast(0))
         } else {
             acknowledged.value = emptySet()
-            alerted.clear()
             tracker.clear()
             _devices.value = emptyList()
             watch.value = WatchView()
-            scanSession.value = ScanSession(UUID.randomUUID().toString(), System.currentTimeMillis(), areaDraft.value.trim().ifBlank { "시험실" })
+            scanSession.value = ScanSession(UUID.randomUUID().toString(), System.currentTimeMillis(), "시험실")
         }
         applyBaseline()
         scanning.value = true
@@ -222,8 +217,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
         if (geigerOn.value) setGeiger(false)
     }
 
-    fun updateAreaDraft(value: String) { areaDraft.value = value.take(80) }
-
     private fun applyBaseline() {
         val baseline = baselineSnapshot.value?.takeIf { scanSession.value != null && it.simulation == simMode.value }
         baselineSet.value = baseline != null
@@ -264,7 +257,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
     fun useSavedBaseline() {
         val saved = savedBaseline.value ?: return
         baselineSnapshot.value = saved
-        areaDraft.value = saved.area
         applyBaseline()
     }
 
@@ -317,8 +309,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
         _devices.value = list
         val view = if (baselineSet.value) watchView(list, baselineGroups, acknowledged.value, now, baselineWifi, baselineSamples) else WatchView()
         watch.value = view
-        val fresh = view.alertKeys.count { alerted.add(it) }
-        if (fresh > 0 && alertVibration.value) geiger.pulse()
         geiger.setClass(list.firstOrNull { it.trackingKey == findTarget.value && it.presence == SignalPresence.RECENT }?.distanceClass ?: DistanceClass.UNKNOWN)
         // 설정 상태 확인은 1초에 한 번이면 충분하다.
         if (now - problemsCheckedAtMs >= 1_000) {

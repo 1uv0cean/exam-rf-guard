@@ -60,11 +60,6 @@ class GeigerController(context: Context) {
         }
     }
 
-    /** 새 전파 알림용 긴 진동 한 번. */
-    fun pulse() {
-        runCatching { vibrator.vibrate(VibrationEffect.createOneShot(500L, VibrationEffect.DEFAULT_AMPLITUDE)) }
-    }
-
     fun stop() {
         job?.cancel()
         job = null

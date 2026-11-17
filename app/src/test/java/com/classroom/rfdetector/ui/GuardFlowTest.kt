@@ -43,7 +43,7 @@ class GuardFlowTest {
         compose.onNodeWithText("빈 교실 측정 시작").assertIsDisplayed().performClick()
         compose.waitUntil(10_000) { vm.devices.value.size == 5 }
         compose.onNodeWithText("빈 교실 기록 저장").assertIsDisplayed().performClick()
-        waitForText("블루투스 / 와이파이 연결 없음")
+        waitForText("새 전파 없음")
     }
 
     private fun addEarbuds(vm: AppViewModel) {
@@ -71,7 +71,7 @@ class GuardFlowTest {
             compose.onNodeWithText("감시를 끝냈습니다").assertExists()
             saveScreen("guard-6-ended")
             compose.onNodeWithText("같은 빈 교실 기록으로 다시 감시").performClick()
-            waitForText("블루투스 / 와이파이 연결 없음")
+            waitForText("새 전파 없음")
         } finally { vm.shutdown() }
     }
 
@@ -88,7 +88,7 @@ class GuardFlowTest {
 
             compose.onNodeWithText("무선 이어폰").performClick()
             compose.onNodeWithText("확인함\n목록에서 빼기").performClick()
-            waitForText("블루투스 / 와이파이 연결 없음")
+            waitForText("새 전파 없음")
             assertEquals(1, vm.acknowledged.value.size)
 
             compose.onNodeWithText("빈 교실부터\n다시 측정").performClick()
@@ -120,6 +120,7 @@ class GuardFlowTest {
             compose.onNodeWithText("안내").performClick()
             compose.onNodeWithText("이 앱이 못 잡는 것").assertExists()
             compose.onNodeWithText("제대로 잡히는지 확인하기").assertExists()
+            saveScreen("guide")
             compose.onNodeWithContentDescription("돌아가기").performClick()
             compose.onNodeWithText("빈 교실 측정 시작").assertIsDisplayed()
         } finally { vm.shutdown() }

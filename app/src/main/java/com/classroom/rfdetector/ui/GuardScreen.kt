@@ -53,7 +53,6 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
     val saved by vm.savedBaseline.collectAsState()
     val busy by vm.snapshotBusy.collectAsState()
     val error by vm.snapshotError.collectAsState()
-    val area by vm.areaDraft.collectAsState()
     val session by vm.scanSession.collectAsState()
     val tick by vm.healthTick.collectAsState()
     val watch by vm.watch.collectAsState()
@@ -102,7 +101,6 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                         GuardPanel {
                             Text("수험생이 들어오기 전,\n빈 교실에서 시작하세요", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             Text("빈 교실의 블루투스와 와이파이를 먼저 기록합니다. 그 뒤에 새로 잡히는 것만 알려 드립니다.", color = RfColors.textDim)
-                            OutlinedTextField(area, vm::updateAreaDraft, label = { Text("교실 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         }
                     }
                     item {
@@ -115,7 +113,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                     saved?.let { record ->
                         item {
                             OutlinedButton(onClick = { vm.useSavedBaseline(); onStart() }, modifier = Modifier.fillMaxWidth()) {
-                                Text("${clock(record.capturedAtMs)}에 저장한 기록으로 바로 감시\n${record.area}")
+                                Text("${clock(record.capturedAtMs)}에 저장한 기록으로 바로 감시")
                             }
                         }
                     }
@@ -124,7 +122,6 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                     item {
                         GuardPanel {
                             Text(if (collected) "충분히 모았습니다" else "빈 교실 전파를 모으는 중", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text(session?.area ?: area, color = RfColors.primary, fontWeight = FontWeight.SemiBold)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 GuardCount("블루투스", devices.count { it.source == ScanSource.BLE }, Modifier.weight(1f))
                                 GuardCount("와이파이", devices.count { it.source == ScanSource.WIFI }, Modifier.weight(1f))
@@ -165,10 +162,10 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                                         !watching -> "감시를 끝냈습니다"
                                         found -> "새 전파 ${watch.count}개 발견"
                                         incomplete -> "감시가 완전하지 않습니다"
-                                        else -> "블루투스 / 와이파이 연결 없음"
+                                        else -> "새 전파 없음"
                                     }, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = if (watching) accent else RfColors.textPrimary)
                                 }
-                                Text(if (watching) "감시 중 · ${session?.area ?: area} · ${minSec(elapsed)} 경과" else "${baseline?.area ?: area} · 지금은 전파를 받지 않습니다")
+                                Text(if (watching) "감시 중 · ${minSec(elapsed)} 경과" else "지금은 전파를 받지 않습니다")
                                 if (watching) Text(when {
                                     found -> "빈 교실에 없던 전파가 지금 잡히고 있습니다. 줄을 눌러 다가가며 세기를 확인하세요. 사라지면 목록에서 빠집니다."
                                     incomplete -> "아래 문제를 해결하기 전까지는 전파가 있어도 표시되지 않을 수 있습니다."
@@ -207,8 +204,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
         }
         Surface(color = RfColors.surface) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (phase == GuardPhase.WATCH || phase == GuardPhase.ENDED) "이 앱은 와이파이와 저전력 블루투스(BLE) 신호만 봅니다. 아무것도 잡히지 않아도 부정행위가 없다는 뜻은 아닙니다. LTE만 쓰는 기기는 보이지 않습니다."
-                    else "블루투스, 와이파이, 위치가 켜져 있어야 합니다. 위치는 와이파이를 찾는 데만 씁니다.", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
+                if (phase == GuardPhase.WATCH || phase == GuardPhase.ENDED) Text("이 앱은 와이파이와 저전력 블루투스(BLE) 신호만 봅니다. 아무것도 잡히지 않아도 부정행위가 없다는 뜻은 아닙니다. LTE만 쓰는 기기는 보이지 않습니다.", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
                 when (phase) {
                     GuardPhase.READY -> MainButton("빈 교실 측정 시작", onClick = onStart)
                     GuardPhase.COLLECT -> MainButton(if (collected || elapsed >= COLLECT_SECONDS) "빈 교실 기록 저장" else "빈 교실 기록 저장 · ${minSec(COLLECT_SECONDS - elapsed)} 뒤",
@@ -308,20 +304,21 @@ fun GuideScreen() {
         GuardPanel {
             Text("사용 순서", fontWeight = FontWeight.Bold)
             GuardHowTo("1", "수험생이 들어오기 전, 빈 교실에서 2분 측정하고 기록을 저장합니다.")
-            GuardHowTo("2", "시험 중에는 화면을 켜 둡니다. 빈 교실에 없던 전파가 잡히면 주황색으로 바뀌고 진동이 울립니다.")
+            GuardHowTo("2", "시험 중에는 화면을 켜 둡니다. 빈 교실에 없던 전파가 잡히면 주황색으로 바뀝니다.")
             GuardHowTo("3", "줄을 눌러 걸어가며 막대가 늘어나는 쪽을 찾습니다.")
         }
         GuardPanel {
             Text("시험 중에는 화면을 끄지 마세요", fontWeight = FontWeight.Bold)
             Text("이 앱은 화면에 떠 있는 동안에만 전파를 받습니다. 측정과 감시 중에는 화면이 자동으로 꺼지지 않습니다.", style = MaterialTheme.typography.bodyMedium)
-            Text("· 전원 버튼을 누르지 않습니다.\n· 다른 앱으로 가거나 홈 화면으로 나가지 않습니다.\n· 전화가 와서 화면이 바뀌지 않게 비행기 모드를 켜고, 블루투스와 와이파이만 다시 켭니다.\n· 화면을 계속 켜 두면 배터리가 빨리 닳으니 충전기를 연결하고 밝기를 낮춥니다.", style = MaterialTheme.typography.bodyMedium)
-            Text("측정과 감시 중에는 전화·알림·알람이 울리지 않게 앱이 휴대폰을 무음(방해 금지)으로 바꾸고, 끝내면 원래대로 돌립니다. 비행기 모드가 꺼져 있거나 방해 금지 권한이 없으면 측정을 시작할 수 없습니다. 새 전파를 알리는 이 앱의 진동은 그대로 울립니다.", style = MaterialTheme.typography.bodyMedium)
+            GuideList("전원 버튼을 누르지 않습니다.", "다른 앱으로 가거나 홈 화면으로 나가지 않습니다.", "전화가 와서 화면이 바뀌지 않게 비행기 모드를 켜고, 블루투스와 와이파이만 다시 켭니다.", "화면을 계속 켜 두면 배터리가 빨리 닳으니 충전기를 연결하고 밝기를 낮춥니다.")
+            Text("측정과 감시 중에는 전화·알림·알람이 울리지 않게 앱이 휴대폰을 무음(방해 금지)으로 바꾸고, 끝내면 원래대로 돌립니다. 권한, 비행기 모드, 와이파이·블루투스·위치 중 하나라도 빠져 있으면 ‘시작 전 준비’ 화면이 먼저 나오고, 모두 마쳐야 측정을 시작할 수 있습니다. 위치 찾기의 진동은 그대로 울립니다.", style = MaterialTheme.typography.bodyMedium)
             Text("화면이 꺼지거나 앱을 벗어난 동안의 전파는 기록되지 않습니다. 돌아오면 감시를 자동으로 이어 가고, 비어 있던 횟수와 시간을 감시 화면에 표시합니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
         }
         GuardPanel {
             Text("제대로 잡히는지 확인하기", fontWeight = FontWeight.Bold)
             Text("빈 교실 기록을 저장한 뒤 차례로 해 보세요.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
-            Text("1. 무선 이어폰 케이스를 엽니다. 30초쯤 뒤 블루투스 칸에 뜹니다.\n2. 다른 휴대폰의 핫스팟을 켭니다. 1분쯤 안에 와이파이 칸에 뜹니다.\n3. 15분 넘게 그대로 둡니다. 개수가 늘지 않아야 합니다.\n4. ‘빈 교실부터 다시 측정’을 누릅니다. 1단계로 돌아갑니다.", style = MaterialTheme.typography.bodyMedium)
+            GuideList("무선 이어폰 케이스를 엽니다. 30초쯤 뒤 블루투스 칸에 뜹니다.", "다른 휴대폰의 핫스팟을 켭니다. 1분쯤 안에 와이파이 칸에 뜹니다.", "15분 넘게 그대로 둡니다. 개수가 늘지 않아야 합니다.", numbered = true)
+            Text("확인을 마친 뒤 처음부터 다시 하려면 ‘빈 교실부터 다시 측정’을 누릅니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
         }
         GuardPanel {
             Text("이 앱이 보는 것", fontWeight = FontWeight.Bold)
@@ -330,25 +327,38 @@ fun GuideScreen() {
         Surface(color = okDim, shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("잡는 것", fontWeight = FontWeight.Bold, color = RfColors.ok)
-                Text("· 자체 와이파이를 여는 카메라\n· 핫스팟을 켠 휴대폰\n· 와이파이 에그(휴대용 와이파이)", style = MaterialTheme.typography.bodyMedium)
+                GuideList("자체 와이파이를 여는 카메라", "핫스팟을 켠 휴대폰", "와이파이 에그(휴대용 와이파이)")
                 Text("와이파이를 켜면 30초~1분 안에 보입니다. 빈 교실 기록에 없던 이름만 알리며, 이름과 설정에 따라 알리지 않는 경우가 있습니다.", style = MaterialTheme.typography.bodySmall)
             }
         }
         Surface(color = warnDim, shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("때에 따라 잡는 것", fontWeight = FontWeight.Bold, color = RfColors.warning)
-                Text("· 무선 이어폰\n· 스마트워치, 스마트 안경\n· 블루투스를 켜 둔 채 숨긴 휴대폰", style = MaterialTheme.typography.bodyMedium)
+                GuideList("무선 이어폰", "스마트워치, 스마트 안경", "블루투스를 켜 둔 채 숨긴 휴대폰")
                 Text("연결된 뒤에도 알림을 내는 제품(에어팟, 아이폰, 애플워치 등)은 계속 보입니다. 연결되면 알림을 멈추는 제품은 연결 전에만 보이고, 사라지면 목록에서도 빠집니다. 그래서 입실 직후와 시험 시작 직전에는 화면을 꼭 확인하세요.", style = MaterialTheme.typography.bodySmall)
             }
         }
         Surface(color = RfColors.dangerDim, shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("이 앱이 못 잡는 것", fontWeight = FontWeight.Bold, color = Color(0xFFFF9A9A))
-                Text("· 블루투스와 와이파이를 끈 채 숨긴 휴대폰, LTE 모듈\n· 선으로 연결한 카메라, 저장만 하는 카메라\n· 목걸이와 귓속 초소형 수신기\n· 구형(클래식) 블루투스만 쓰는 기기\n· 화장실 등 교실 밖에서 쓰는 기기", style = MaterialTheme.typography.bodyMedium)
+                GuideList("블루투스와 와이파이를 끈 채 숨긴 휴대폰, LTE 모듈", "선으로 연결한 카메라, 저장만 하는 카메라", "목걸이와 귓속 초소형 수신기", "구형(클래식) 블루투스만 쓰는 기기", "화장실 등 교실 밖에서 쓰는 기기")
                 Text("이것들은 전파 탐지기(LTE 송신), 금속 탐지기(휴대폰·모듈), 눈으로 하는 확인(귀·목 뒤·단추)으로 보완해야 합니다. 앱에 아무것도 잡히지 않아도 부정행위가 없다는 뜻은 아닙니다.", style = MaterialTheme.typography.bodySmall)
             }
         }
         Text("새 전파는 확인이 필요하다는 표시일 뿐 부정행위의 증거가 아닙니다. 옆 교실, 복도, 감독관 본인의 기기도 잡힙니다.", color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** 안내 화면의 목록. 항목이 두 줄로 넘어가도 표시(· 또는 번호) 아래로 글이 들어가지 않게 맞춘다. */
+@Composable
+private fun GuideList(vararg items: String, numbered: Boolean = false) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.forEachIndexed { index, text ->
+            Row {
+                Text(if (numbered) "${index + 1}." else "·", Modifier.width(if (numbered) 24.dp else 14.dp), style = MaterialTheme.typography.bodyMedium)
+                Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
 }
 
@@ -499,7 +509,8 @@ private fun MainButton(text: String, enabled: Boolean = true, onClick: () -> Uni
 
 @Composable
 private fun GuardSteps(phase: GuardPhase) {
-    val current = if (phase == GuardPhase.READY || phase == GuardPhase.COLLECT) 1 else 2
+    // 감시를 끝낸 뒤에는 두 단계 모두 완료로 보여 준다.
+    val current = when (phase) { GuardPhase.READY, GuardPhase.COLLECT -> 1; GuardPhase.WATCH -> 2; GuardPhase.ENDED -> 3 }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("빈 교실 기록", "시험 중 감시").forEachIndexed { index, title ->
             val step = index + 1

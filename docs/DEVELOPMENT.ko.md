@@ -40,7 +40,7 @@ sdk.dir=C:/Android/Sdk
 | `core/SignalHints`, `SignalDetails` | 알림 신호에서 종류 단서와 부가 정보 읽기 |
 | `core/DeviceIdentity`, `AudioNameCatalog`, `WearableNameCatalog` | 회사 코드·주소 등록부·이름 규칙으로 제조사와 제품군 후보 찾기 |
 | `core/RssiFilter`, `DistanceEstimate` | 수신 세기 평활, 가정에 기반한 거리 어림 |
-| `core/Geiger`, `SilentMode` | 진동 알림, 측정·감시 중 방해 금지 |
+| `core/Geiger`, `SilentMode` | 위치 찾기 진동, 측정·감시 중 방해 금지 |
 | `sim/RadioSimulator` | 가상 전파. 화면에서는 켤 수 없고 자동 테스트만 씁니다. |
 | `ui/GuardScreen` | 감독관 화면, 위치 찾기, 안내 |
 
