@@ -102,7 +102,7 @@ fun App() {
                 when {
                     key != null -> FindScreen(vm, key, onBack = { findKey = null })
                     guide -> GuideScreen()
-                    else -> GuardScreen(vm, !allGranted, start, openSettings, onFind = { findKey = it })
+                    else -> GuardScreen(vm, !allGranted, start, { launcher.launch(needed.toTypedArray()) }, openSettings, onFind = { findKey = it })
                 }
             }
         }

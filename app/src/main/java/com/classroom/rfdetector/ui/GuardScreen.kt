@@ -44,7 +44,7 @@ private fun minSec(seconds: Int) = if (seconds >= 60) "${seconds / 60}분 ${seco
  * 빈 교실에 없던 블루투스·와이파이가 지금 잡히는지를 보여 준다.
  */
 @Composable
-fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Unit, onOpenSettings: () -> Unit, onFind: (String) -> Unit) {
+fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Unit, onRequestPermissions: () -> Unit, onOpenSettings: () -> Unit, onFind: (String) -> Unit) {
     val devices by vm.devices.collectAsState()
     val scanning by vm.scanning.collectAsState()
     val simulation by vm.simMode.collectAsState()
@@ -76,54 +76,46 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
     val elapsed = session?.let { ((maxOf(tick, it.startedAtMs) - it.startedAtMs) / 1000).toInt() } ?: 0
     // 빈 교실 기록은 2분 이상, 와이파이 탐색이 두 번 끝난 뒤에 저장한다. 와이파이를 못 쓰는 경우 3분 뒤에는 막지 않는다.
     val collected = simulation || elapsed >= COLLECT_SECONDS + 60 || (elapsed >= COLLECT_SECONDS && vm.wifi.completedScans >= 2)
-    // 비행기 모드와 방해 금지 권한이 모두 갖춰져야 측정과 감시를 시작할 수 있다.
-    val blocked = !simulation && (airplaneOff || silenceMissing)
+    // 권한, 비행기 모드, 와이파이·블루투스·위치가 모두 갖춰져야 측정과 감시를 시작할 수 있다.
+    val missing = if (simulation) emptyList() else listOfNotNull(
+        SetupStep.PERMISSIONS.takeIf { permissionMissing },
+        SetupStep.SILENCE.takeIf { silenceMissing },
+        SetupStep.AIRPLANE.takeIf { airplaneOff },
+        SetupStep.WIFI.takeIf { RadioProblem.WIFI_OFF in problems },
+        SetupStep.BLUETOOTH.takeIf { RadioProblem.BLUETOOTH_OFF in problems },
+        SetupStep.LOCATION.takeIf { RadioProblem.LOCATION_OFF in problems },
+    )
+    val blocked = missing.isNotEmpty()
     val toggle: (String) -> Unit = { key -> openGroup = if (openGroup == key) null else key }
+    // 측정·감시 중이 아닐 때 빠진 준비가 있으면, 하나씩 마칠 때까지 준비 화면만 보여 준다.
+    if (blocked && !scanning) {
+        SetupFlow(missing, vm::checkExamMode, onRequestPermissions, onOpenSettings)
+        return
+    }
 
     Column(Modifier.fillMaxSize()) {
         GuardSteps(phase)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (phase) {
                 GuardPhase.READY -> {
-                    examModeItems(airplaneOff && !simulation, silenceMissing && !simulation)
-                    if (permissionMissing && !simulation) {
-                        item {
-                            GuardPanel {
-                                Text("시작하려면 두 가지 권한이 필요합니다", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("주변 전파를 찾는 데만 쓰고, 기록은 이 휴대폰 안에만 저장합니다. 인터넷으로 보내지 않습니다.", color = RfColors.textDim)
-                            }
+                    item {
+                        GuardPanel {
+                            Text("수험생이 들어오기 전,\n빈 교실에서 시작하세요", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("빈 교실의 블루투스와 와이파이를 먼저 기록합니다. 그 뒤에 새로 잡히는 것만 알려 드립니다.", color = RfColors.textDim)
+                            OutlinedTextField(area, vm::updateAreaDraft, label = { Text("교실 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         }
-                        item {
-                            GuardPanel {
-                                PermissionRow(RfSymbol.BLUETOOTH, "근처 기기", "이어폰, 시계, 휴대폰이 내는 블루투스 신호를 받습니다.")
-                                PermissionRow(RfSymbol.WIFI, "정확한 위치", "Android는 와이파이 목록을 볼 때 위치 권한을 요구합니다. 감독관의 위치를 기록하지 않습니다.")
-                            }
+                    }
+                    item {
+                        GuardPanel {
+                            GuardHowTo("1", "빈 교실에서 2분 측정하고 기록 저장")
+                            GuardHowTo("2", "시험 중에는 이 화면을 켜 두기 · 전원 버튼을 누르거나 다른 앱으로 가면 감시가 멈춤")
+                            GuardHowTo("3", "새 전파가 뜨면 눌러서 다가가며 확인")
                         }
+                    }
+                    saved?.let { record ->
                         item {
-                            GuardNotice("이미 ‘허용 안함’을 눌렀다면 권한 창이 다시 뜨지 않습니다", "설정에서 직접 허용해 주세요.") {
-                                TextButton(onClick = onOpenSettings) { Text("앱 권한 설정 열기") }
-                            }
-                        }
-                    } else {
-                        item {
-                            GuardPanel {
-                                Text("수험생이 들어오기 전,\n빈 교실에서 시작하세요", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("빈 교실의 블루투스와 와이파이를 먼저 기록합니다. 그 뒤에 새로 잡히는 것만 알려 드립니다.", color = RfColors.textDim)
-                                OutlinedTextField(area, vm::updateAreaDraft, label = { Text("교실 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                        item {
-                            GuardPanel {
-                                GuardHowTo("1", "빈 교실에서 2분 측정하고 기록 저장")
-                                GuardHowTo("2", "시험 중에는 이 화면을 켜 두기 · 전원 버튼을 누르거나 다른 앱으로 가면 감시가 멈춤")
-                                GuardHowTo("3", "새 전파가 뜨면 눌러서 다가가며 확인")
-                            }
-                        }
-                        saved?.let { record ->
-                            item {
-                                OutlinedButton(onClick = { vm.useSavedBaseline(); onStart() }, enabled = !blocked, modifier = Modifier.fillMaxWidth()) {
-                                    Text("${clock(record.capturedAtMs)}에 저장한 기록으로 바로 감시\n${record.area}")
-                                }
+                            OutlinedButton(onClick = { vm.useSavedBaseline(); onStart() }, modifier = Modifier.fillMaxWidth()) {
+                                Text("${clock(record.capturedAtMs)}에 저장한 기록으로 바로 감시\n${record.area}")
                             }
                         }
                     }
@@ -218,7 +210,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                 Text(if (phase == GuardPhase.WATCH || phase == GuardPhase.ENDED) "이 앱은 와이파이와 저전력 블루투스(BLE) 신호만 봅니다. 아무것도 잡히지 않아도 부정행위가 없다는 뜻은 아닙니다. LTE만 쓰는 기기는 보이지 않습니다."
                     else "블루투스, 와이파이, 위치가 켜져 있어야 합니다. 위치는 와이파이를 찾는 데만 씁니다.", color = RfColors.textDim, style = MaterialTheme.typography.labelSmall)
                 when (phase) {
-                    GuardPhase.READY -> MainButton(if (blocked) "비행기 모드와 무음 권한이 필요합니다" else if (permissionMissing && !simulation) "권한 허용하고 시작" else "빈 교실 측정 시작", enabled = !blocked, onClick = onStart)
+                    GuardPhase.READY -> MainButton("빈 교실 측정 시작", onClick = onStart)
                     GuardPhase.COLLECT -> MainButton(if (collected || elapsed >= COLLECT_SECONDS) "빈 교실 기록 저장" else "빈 교실 기록 저장 · ${minSec(COLLECT_SECONDS - elapsed)} 뒤",
                         enabled = devices.isNotEmpty() && !busy && collected) { vm.takeBaseline() }
                     GuardPhase.WATCH -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -227,7 +219,7 @@ fun GuardScreen(vm: AppViewModel, permissionMissing: Boolean, onStart: () -> Uni
                             colors = ButtonDefaults.buttonColors(containerColor = RfColors.surfaceAlt, contentColor = RfColors.textPrimary)) { Text("감시 끝내기", fontWeight = FontWeight.Bold) }
                     }
                     GuardPhase.ENDED -> {
-                        MainButton(if (blocked) "비행기 모드와 무음 권한이 필요합니다" else "같은 빈 교실 기록으로 다시 감시", enabled = !blocked, onClick = onStart)
+                        MainButton("같은 빈 교실 기록으로 다시 감시", onClick = onStart)
                         OutlinedButton(onClick = { vm.resetBaseline() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) { Text("빈 교실부터 다시 측정") }
                     }
                 }
@@ -556,17 +548,66 @@ private fun LazyListScope.examModeItems(airplaneOff: Boolean, silenceMissing: Bo
 private fun SilenceNotice() {
     val context = LocalContext.current
     GuardNotice("휴대폰을 무음으로 바꿀 권한이 없습니다", "허용하면 측정과 감시 중에 전화·알림·알람이 울리지 않게 자동으로 무음으로 바꾸고, 끝내면 원래대로 돌립니다. 허용하기 전에는 측정을 시작할 수 없습니다.") {
-        TextButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }) { Text("방해 금지 권한 설정 열기") }
+        TextButton(onClick = { openSilenceAccess(context) }) { Text("방해 금지 권한 설정 열기") }
     }
 }
 
+/** 앱 목록이 아니라 이 앱의 허용 스위치 화면으로 바로 간다. 그 화면이 없는 기기에서는 목록을 연다. */
+private fun openSilenceAccess(context: android.content.Context) {
+    runCatching {
+        context.startActivity(android.content.Intent("android.settings.NOTIFICATION_POLICY_ACCESS_DETAIL_SETTINGS", android.net.Uri.parse("package:${context.packageName}")))
+    }.onFailure {
+        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+    }
+}
+
+/** 측정을 시작하기 전에 갖춰야 하는 것. 이 순서대로 하나씩 마친다. 비행기 모드를 켜면 와이파이·블루투스가 꺼지므로 그 뒤에 다시 켠다. */
+private enum class SetupStep(val title: String, val body: String, val action: String) {
+    PERMISSIONS("근처 기기·위치 권한 허용", "이어폰·시계·휴대폰의 블루투스 신호와 와이파이 목록을 받는 데만 씁니다. 감독관의 위치를 기록하지 않고, 기록은 이 휴대폰 안에만 저장합니다.", "권한 허용"),
+    SILENCE("방해 금지 권한 허용", "측정과 감시 중에 전화·알림·알람이 울리지 않게 자동으로 무음으로 바꾸고, 끝내면 원래대로 돌립니다.", "방해 금지 권한 설정 열기"),
+    AIRPLANE("비행기 모드 켜기", "전화나 문자가 오면 감시 화면이 가려지고 감시가 멈춥니다.", "비행기 모드 설정 열기"),
+    WIFI("와이파이 다시 켜기", "비행기 모드를 켜면 와이파이가 꺼집니다. 켜야 핫스팟과 와이파이 카메라를 찾을 수 있습니다.", "와이파이 설정 열기"),
+    BLUETOOTH("블루투스 다시 켜기", "비행기 모드를 켜면 블루투스가 꺼집니다. 켜야 이어폰·시계·휴대폰을 찾을 수 있습니다.", "블루투스 설정 열기"),
+    LOCATION("위치(GPS) 켜기", "Android는 위치가 꺼져 있으면 와이파이 목록을 주지 않습니다.", "위치 설정 열기"),
+}
+
 @Composable
-private fun PermissionRow(symbol: RfSymbol, title: String, body: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(44.dp).background(RfColors.surfaceAlt, CircleShape), contentAlignment = Alignment.Center) { RfGlyph(symbol, size = 24.dp) }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(body, color = RfColors.textDim, style = MaterialTheme.typography.bodySmall)
+private fun SetupFlow(missing: List<SetupStep>, onRecheck: () -> Unit, onRequestPermissions: () -> Unit, onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
+    // 알림창에서 켠 블루투스처럼 조금 늦게 반영되는 설정도 놓치지 않게 계속 다시 확인한다.
+    LaunchedEffect(Unit) { while (true) { onRecheck(); kotlinx.coroutines.delay(1_000) } }
+    val steps = SetupStep.entries
+    val open = { action: String -> context.startActivity(android.content.Intent(action)) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        GuardPanel {
+            Text("시작 전 준비", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("위에서부터 하나씩 마쳐야 측정을 시작할 수 있습니다. ${steps.size - missing.size}/${steps.size} 완료", color = RfColors.textDim)
+        }
+        steps.forEachIndexed { index, step ->
+            if (step == missing.first()) GuardPanel {
+                Text("${index + 1}. ${step.title}", color = RfColors.primary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(step.body, color = RfColors.textDim)
+                MainButton(step.action) {
+                    when (step) {
+                        SetupStep.PERMISSIONS -> onRequestPermissions()
+                        SetupStep.SILENCE -> openSilenceAccess(context)
+                        SetupStep.AIRPLANE -> open(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+                        SetupStep.WIFI -> open(android.provider.Settings.ACTION_WIFI_SETTINGS)
+                        SetupStep.BLUETOOTH -> open(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                        SetupStep.LOCATION -> open(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    }
+                }
+                if (step == SetupStep.PERMISSIONS) TextButton(onClick = onOpenSettings) { Text("권한 창이 뜨지 않으면 앱 권한 설정 열기") }
+            } else {
+                val done = step !in missing
+                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp).semantics { contentDescription = "${index + 1}단계 ${step.title} · ${if (done) "완료" else "다음"}" },
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        if (done) RfGlyph(RfSymbol.CHECK, size = 18.dp) else Text("${index + 1}", color = RfColors.textDim, fontWeight = FontWeight.Bold)
+                    }
+                    Text(step.title, color = RfColors.textDim)
+                }
+            }
         }
     }
 }

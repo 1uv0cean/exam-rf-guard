@@ -201,10 +201,11 @@ class AppViewModel(private val app: Context) : ViewModel() {
 
     private fun airplaneModeOff() = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 0
 
-    /** 비행기 모드와 방해 금지 권한을 다시 확인한다. 권한을 방금 허용했다면 바로 무음으로 바꾼다. 가상 전파로 도는 자동 테스트에서는 휴대폰 설정을 건드리지 않는다. */
+    /** 비행기 모드, 방해 금지 권한, 블루투스·와이파이·위치 상태를 다시 확인한다. 권한을 방금 허용했다면 바로 무음으로 바꾼다. 가상 전파로 도는 자동 테스트에서는 휴대폰 설정을 건드리지 않는다. */
     fun checkExamMode() {
         silenceMissing.value = !silent.allowed()
         airplaneOff.value = airplaneModeOff()
+        problems.value = radioProblems()
         if (scanning.value && !simMode.value) silent.on()
     }
 
@@ -322,7 +323,6 @@ class AppViewModel(private val app: Context) : ViewModel() {
         // 설정 상태 확인은 1초에 한 번이면 충분하다.
         if (now - problemsCheckedAtMs >= 1_000) {
             problemsCheckedAtMs = now
-            problems.value = radioProblems()
             checkExamMode()
             // 감시 도중에 블루투스를 켠 경우 바로 받기 시작한다. 오류로 멈춘 탐색은 자동으로 되풀이하지 않는다.
             if (scanning.value && !simMode.value && !ble.active && ble.lastError == null && ble.isUsable()) ble.start(::onObservation)
