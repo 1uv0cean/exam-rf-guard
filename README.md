@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/icon.png" width="96" height="96" alt="KoriyoSCAN 아이콘">
+</p>
+
 # KoriyoSCAN
 
 시험 감독관용 Android 앱입니다. 수험생이 들어오기 전 빈 교실의 와이파이·블루투스 전파를 기록해 두고, 시험 중에 그 기록에 없던 전파가 잡히면 화면과 진동으로 알립니다.
@@ -9,17 +13,57 @@
 | 지원 환경 | Android 10(API 29) 이상. 아이폰은 지원하지 않습니다. |
 | 보는 것 | 와이파이 접속점(공유기·핫스팟)과 저전력 블루투스(BLE) 알림 신호 |
 | 데이터 | 휴대폰 안에만 저장합니다. 앱에 인터넷 권한이 없습니다. |
+| 측정 조건 | 비행기 모드가 켜져 있어야 시작됩니다. 측정·감시 중에는 휴대폰을 자동으로 무음(방해 금지)으로 바꿉니다. |
 | 화면 | 감독관 화면, 위치 찾기, 안내 |
 
-## 동작 방식
+<p align="center">
+  <img src="docs/images/screen-1-ready.png" width="250" alt="빈 교실 기록 화면">
+  <img src="docs/images/screen-2-found.png" width="250" alt="시험 중 감시 화면에 새 전파 1개가 뜬 모습">
+  <img src="docs/images/screen-3-find.png" width="250" alt="위치 찾기 화면">
+</p>
+<p align="center"><sub>자동 테스트가 가상 전파로 그린 실제 앱 화면입니다. 왼쪽부터 빈 교실 기록, 시험 중 감시, 위치 찾기.</sub></p>
 
-1. **빈 교실 기록** — 수험생 입실 전 2분 동안 잡히는 전파를 "원래 있던 것"으로 저장합니다.
+## 상태
+
+- **현장 검증 전입니다.** 자동 테스트는 통과하지만 실제 시험장에서 얼마나 잡고 얼마나 놓치는지는 측정하지 않았습니다.
+- 시험 주관 기관의 지침이 감독관의 휴대폰 반입이나 사용을 제한할 수 있습니다. 쓰기 전에 해당 시험의 지침을 확인해야 합니다.
+- 실기기에서 써 본 결과는 [Issues](https://github.com/reform-dev-team/exam-rf-guard/issues)로 알려 주세요. 적는 방법은 [제보](#제보)에 있습니다.
+
+## 사용 순서
+
+**준비**
+
+1. 비행기 모드를 켭니다. 꺼져 있으면 측정을 시작할 수 없습니다.
+2. 와이파이와 블루투스만 다시 켭니다. 위치도 켜 둡니다.
+3. 앱이 요청하는 권한(근처 기기, 정확한 위치, 방해 금지)을 허용합니다.
+4. 충전기를 꽂아 둡니다. 측정·감시 중에는 화면이 꺼지지 않습니다.
+
+**측정과 감시**
+
+1. **빈 교실 기록** — 수험생 입실 전 2분 동안 잡히는 전파를 "원래 있던 것"으로 저장합니다. 감독관 본인의 시계와 이어폰은 이때 켜 두면 함께 기록되어 나중에 알리지 않습니다.
 2. **시험 중 감시** — 빈 교실 기록에 없던 전파가 잡히면 목록에 올리고 진동으로 한 번 알립니다. 사라지면 목록에서 빠집니다.
 3. **위치 찾기** — 한 전파를 골라 걸으면 수신 세기가 막대와 진동 간격으로 바뀝니다.
 
-측정과 감시는 앱 화면이 켜져 있는 동안에만 동작합니다. 화면을 끄거나 다른 앱으로 가면 수신이 멈추고, 돌아오면 이어서 감시하며 비어 있던 횟수와 시간을 표시합니다.
+측정과 감시는 앱 화면이 켜져 있는 동안에만 동작합니다. 화면을 끄거나 다른 앱으로 가면 수신이 멈추고, 돌아오면 이어서 감시하며 비어 있던 횟수와 시간을 표시합니다. 측정·감시 중에는 앱이 휴대폰을 무음(방해 금지)으로 바꾸고 끝나면 되돌립니다. 새 전파를 알리는 앱의 진동은 그대로 울립니다.
 
-시작하려면 비행기 모드가 켜져 있어야 하고(와이파이와 블루투스만 다시 켭니다), 방해 금지 권한이 필요합니다. 측정·감시 중에는 앱이 휴대폰을 무음으로 바꾸고 끝나면 되돌립니다.
+**제대로 잡히는지 확인하기**
+
+빈 교실 기록을 저장한 뒤 차례로 해 봅니다.
+
+1. 무선 이어폰 케이스를 엽니다. 30초쯤 뒤 블루투스 칸에 떠야 합니다.
+2. 다른 휴대폰의 핫스팟을 켭니다. 1분쯤 안에 와이파이 칸에 떠야 합니다.
+3. 15분 넘게 그대로 둡니다. 개수가 늘지 않아야 합니다.
+
+## 동작 방식
+
+### 비행기 모드와 무음을 강제하는 이유
+
+시험실에서 감독관의 휴대폰이 울리거나, 전화 때문에 감시가 끊기는 일을 막기 위해서입니다.
+
+- **비행기 모드가 꺼져 있으면 측정을 시작할 수 없습니다.** 전화나 문자가 오면 감시 화면이 가려지고 수신이 멈추기 때문입니다. 앱이 비행기 모드를 직접 켤 수는 없어, 사용자가 켠 뒤 와이파이와 블루투스만 다시 켜야 합니다.
+- **방해 금지 권한이 없어도 측정을 시작할 수 없습니다.** 권한이 있으면 측정·감시를 시작할 때 전화·알림·알람이 울리지 않게 휴대폰을 무음으로 바꾸고, 끝내거나 처음으로 되돌리면 원래 설정으로 돌립니다.
+- 앱을 잠시 벗어난 동안에도 무음은 유지합니다. 시험이 끝난 것이 아니기 때문입니다.
+- 새 전파를 알리는 앱의 진동과 위치 찾기 진동은 무음 중에도 울립니다. 진동이 곤란하면 감시 화면 위의 "진동 켬"을 눌러 끌 수 있습니다.
 
 ### 같은 기기를 새 전파로 세지 않는 방법
 
@@ -113,3 +157,11 @@ APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생깁니다. 구조와 �
 소스 코드는 [Apache License 2.0](LICENSE)으로 공개합니다. 누구나 사용·수정·재배포할 수 있으며, 저작권 표시와 라이선스 문구를 유지하고 고친 파일에는 고쳤다는 표시를 남겨야 합니다.
 
 이 라이선스는 코드에만 적용됩니다. 앱 아이콘(코리요), 앱에 포함한 등록부, "KoriyoSCAN"이라는 이름에는 각 권리자의 조건이 적용됩니다. 자세한 내용은 [NOTICE](NOTICE)에 있습니다.
+
+## English
+
+KoriyoSCAN is an Android app for exam proctors. It records the Wi-Fi access points and Bluetooth Low Energy advertisements present in an empty room, then flags signals that were not in that record once the exam is under way, and helps walk toward one by signal strength.
+
+It cannot detect every device. It only sees Wi-Fi access points and BLE advertisements, so it misses devices that use cellular data only, wired or record-only cameras, Bluetooth Classic devices, and anything that stops advertising once connected. It does not block signals and does not decide whether anyone cheated. Field accuracy has not been measured.
+
+Records stay on the phone; the app declares no internet permission. The UI and the rest of this document are in Korean. Licensed under Apache-2.0; see [NOTICE](NOTICE) for the icon and bundled registry data.
