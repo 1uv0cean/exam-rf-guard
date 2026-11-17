@@ -16,7 +16,7 @@ android {
         versionName = "1.0.0"
     }
 
-    // 정식 서명: 키 파일과 비밀번호는 저장소에 두지 않는다(OpenBao kv/exam-rf-guard/prod/env).
+    // 정식 서명: 키 파일과 비밀번호는 저장소에 두지 않고 환경 변수로 받는다.
     // 환경 변수가 없으면 release 는 서명 없이 빌드된다. 절차는 docs/RELEASE.ko.md.
     val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
     if (releaseStoreFile != null) {
